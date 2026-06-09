@@ -28,8 +28,7 @@ import {
   reportError,
 } from "./cli/commands.ts";
 import { runDaemonForeground } from "./daemon/daemon.ts";
-
-const VERSION = "0.1.0";
+import { VERSION } from "./version.ts";
 
 const HELP = `llamactl ${VERSION} — a Bun-native launcher for local LLMs (llama-server)
 
