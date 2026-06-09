@@ -1,6 +1,6 @@
 /**
  * Configuration loading and merging. Precedence (lowest to highest):
- *   built-in defaults  →  config file (JSON)  →  env (BUNSTASH_*)  →  CLI flags
+ *   built-in defaults  →  config file (JSON)  →  env (LLAMACTL_*)  →  CLI flags
  *
  * Merging is intentionally pure and side-effect free so it is easy to test.
  */
@@ -8,21 +8,18 @@
 import type { Config } from "../types.ts";
 import { configPath } from "./paths.ts";
 
-/** Ports used by the proxy in each mode. */
-export const PROXY_PORT_DEFAULT = 11435;
-export const PROXY_PORT_OLLAMA = 11434;
 export const CONTROL_PORT_DEFAULT = 48134;
+/** Offload all layers to the GPU by default; override per-spec for CPU/partial. */
+export const DEFAULT_GPU_LAYERS = 99;
 
 /** Built-in defaults. */
 export function defaultConfig(): Config {
   return {
     modelPaths: [],
     controlPort: CONTROL_PORT_DEFAULT,
-    proxy: { host: "127.0.0.1", port: PROXY_PORT_DEFAULT },
     llamaServerPath: null,
     defaultCtx: 4096,
-    ollamaCompat: false,
-    fallbackEnabled: false,
+    defaultGpuLayers: DEFAULT_GPU_LAYERS,
     llamaServerArgs: [],
   };
 }
@@ -31,11 +28,9 @@ export function defaultConfig(): Config {
 export type PartialConfig = {
   modelPaths?: string[];
   controlPort?: number;
-  proxy?: { host?: string; port?: number };
   llamaServerPath?: string | null;
   defaultCtx?: number;
-  ollamaCompat?: boolean;
-  fallbackEnabled?: boolean;
+  defaultGpuLayers?: number;
   llamaServerArgs?: string[];
 };
 
@@ -44,26 +39,12 @@ export function mergeConfig(base: Config, over: PartialConfig): Config {
   return {
     modelPaths: over.modelPaths ?? base.modelPaths,
     controlPort: over.controlPort ?? base.controlPort,
-    proxy: {
-      host: over.proxy?.host ?? base.proxy.host,
-      port: over.proxy?.port ?? base.proxy.port,
-    },
     llamaServerPath:
       over.llamaServerPath !== undefined ? over.llamaServerPath : base.llamaServerPath,
     defaultCtx: over.defaultCtx ?? base.defaultCtx,
-    ollamaCompat: over.ollamaCompat ?? base.ollamaCompat,
-    fallbackEnabled: over.fallbackEnabled ?? base.fallbackEnabled,
+    defaultGpuLayers: over.defaultGpuLayers ?? base.defaultGpuLayers,
     llamaServerArgs: over.llamaServerArgs ?? base.llamaServerArgs,
   };
-}
-
-/** Parse a boolean-ish env string ("1", "true", "yes" → true). */
-function envBool(v: string | undefined): boolean | undefined {
-  if (v === undefined) return undefined;
-  const s = v.trim().toLowerCase();
-  if (s === "1" || s === "true" || s === "yes" || s === "on") return true;
-  if (s === "0" || s === "false" || s === "no" || s === "off") return false;
-  return undefined;
 }
 
 function envInt(v: string | undefined): number | undefined {
@@ -72,28 +53,19 @@ function envInt(v: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** Build a PartialConfig from BUNSTASH_* environment variables. */
+/** Build a PartialConfig from LLAMACTL_* environment variables. */
 export function configFromEnv(env: Record<string, string | undefined>): PartialConfig {
   const out: PartialConfig = {};
-  const paths = env.BUNSTASH_MODEL_PATHS;
+  const paths = env.LLAMACTL_MODEL_PATHS;
   if (paths) out.modelPaths = paths.split(":").filter((p) => p.length > 0);
-  const controlPort = envInt(env.BUNSTASH_CONTROL_PORT);
+  const controlPort = envInt(env.LLAMACTL_CONTROL_PORT);
   if (controlPort !== undefined) out.controlPort = controlPort;
-  const proxyHost = env.BUNSTASH_PROXY_HOST;
-  const proxyPort = envInt(env.BUNSTASH_PROXY_PORT);
-  if (proxyHost !== undefined || proxyPort !== undefined) {
-    out.proxy = {};
-    if (proxyHost !== undefined) out.proxy.host = proxyHost;
-    if (proxyPort !== undefined) out.proxy.port = proxyPort;
-  }
-  const lsPath = env.BUNSTASH_LLAMA_SERVER;
+  const lsPath = env.LLAMACTL_LLAMA_SERVER;
   if (lsPath !== undefined) out.llamaServerPath = lsPath;
-  const ctx = envInt(env.BUNSTASH_CTX);
+  const ctx = envInt(env.LLAMACTL_CTX);
   if (ctx !== undefined) out.defaultCtx = ctx;
-  const ollama = envBool(env.BUNSTASH_OLLAMA_COMPAT);
-  if (ollama !== undefined) out.ollamaCompat = ollama;
-  const fallback = envBool(env.BUNSTASH_FALLBACK);
-  if (fallback !== undefined) out.fallbackEnabled = fallback;
+  const ngl = envInt(env.LLAMACTL_GPU_LAYERS);
+  if (ngl !== undefined) out.defaultGpuLayers = ngl;
   return out;
 }
 
@@ -132,11 +104,5 @@ export async function resolveConfig(opts: {
   cfg = mergeConfig(cfg, file);
   cfg = mergeConfig(cfg, env);
   if (opts.flags) cfg = mergeConfig(cfg, opts.flags);
-
-  // Ollama-compat implies the well-known port unless the user set one explicitly.
-  if (cfg.ollamaCompat && opts.flags?.proxy?.port === undefined &&
-      env.proxy?.port === undefined && file.proxy?.port === undefined) {
-    cfg.proxy.port = PROXY_PORT_OLLAMA;
-  }
   return cfg;
 }

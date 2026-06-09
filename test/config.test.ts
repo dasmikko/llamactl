@@ -4,8 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CONTROL_PORT_DEFAULT,
-  PROXY_PORT_DEFAULT,
-  PROXY_PORT_OLLAMA,
   configFromEnv,
   defaultConfig,
   mergeConfig,
@@ -13,24 +11,23 @@ import {
 } from "../src/config/config.ts";
 
 describe("defaultConfig", () => {
-  test("has loopback proxy + standard ports + safe defaults", () => {
+  test("has standard control port and safe defaults", () => {
     const c = defaultConfig();
-    expect(c.proxy.host).toBe("127.0.0.1");
-    expect(c.proxy.port).toBe(PROXY_PORT_DEFAULT);
     expect(c.controlPort).toBe(CONTROL_PORT_DEFAULT);
-    expect(c.fallbackEnabled).toBe(false);
-    expect(c.ollamaCompat).toBe(false);
+    expect(c.defaultCtx).toBe(4096);
+    expect(c.defaultGpuLayers).toBe(99); // offload to GPU by default
+    expect(c.modelPaths).toEqual([]);
+    expect(c.llamaServerArgs).toEqual([]);
     expect(c.llamaServerPath).toBeNull();
   });
 });
 
 describe("mergeConfig", () => {
-  test("overrides win and are deep-merged for proxy", () => {
+  test("overrides win over the base layer", () => {
     const base = defaultConfig();
-    const merged = mergeConfig(base, { proxy: { port: 9999 }, fallbackEnabled: true });
-    expect(merged.proxy.port).toBe(9999);
-    expect(merged.proxy.host).toBe("127.0.0.1"); // untouched
-    expect(merged.fallbackEnabled).toBe(true);
+    const merged = mergeConfig(base, { controlPort: 9999, defaultCtx: 8192 });
+    expect(merged.controlPort).toBe(9999);
+    expect(merged.defaultCtx).toBe(8192);
   });
 
   test("absent override keys leave base untouched", () => {
@@ -46,25 +43,23 @@ describe("mergeConfig", () => {
 });
 
 describe("configFromEnv", () => {
-  test("parses BUNSTASH_* vars with correct types", () => {
+  test("parses LLAMACTL_* vars with correct types", () => {
     const p = configFromEnv({
-      BUNSTASH_MODEL_PATHS: "/a:/b",
-      BUNSTASH_CONTROL_PORT: "50000",
-      BUNSTASH_PROXY_PORT: "12000",
-      BUNSTASH_CTX: "16384",
-      BUNSTASH_FALLBACK: "1",
-      BUNSTASH_OLLAMA_COMPAT: "true",
+      LLAMACTL_MODEL_PATHS: "/a:/b",
+      LLAMACTL_CONTROL_PORT: "50000",
+      LLAMACTL_CTX: "16384",
+      LLAMACTL_GPU_LAYERS: "20",
+      LLAMACTL_LLAMA_SERVER: "/usr/bin/llama-server",
     });
     expect(p.modelPaths).toEqual(["/a", "/b"]);
     expect(p.controlPort).toBe(50000);
-    expect(p.proxy?.port).toBe(12000);
     expect(p.defaultCtx).toBe(16384);
-    expect(p.fallbackEnabled).toBe(true);
-    expect(p.ollamaCompat).toBe(true);
+    expect(p.defaultGpuLayers).toBe(20);
+    expect(p.llamaServerPath).toBe("/usr/bin/llama-server");
   });
 
   test("ignores absent vars and bad numbers", () => {
-    const p = configFromEnv({ BUNSTASH_CONTROL_PORT: "not-a-number" });
+    const p = configFromEnv({ LLAMACTL_CONTROL_PORT: "not-a-number" });
     expect(p.controlPort).toBeUndefined();
     expect(Object.keys(p)).toHaveLength(0);
   });
@@ -75,11 +70,11 @@ describe("resolveConfig precedence: defaults -> file -> env -> flags", () => {
   let cfgFile: string;
 
   beforeAll(async () => {
-    dir = await mkdtemp(join(tmpdir(), "bunstash-cfg-"));
+    dir = await mkdtemp(join(tmpdir(), "llamactl-cfg-"));
     cfgFile = join(dir, "config.json");
     await writeFile(
       cfgFile,
-      JSON.stringify({ defaultCtx: 2048, proxy: { port: 5000 }, fallbackEnabled: true }),
+      JSON.stringify({ defaultCtx: 2048, controlPort: 5000 }),
     );
   });
   afterAll(async () => {
@@ -89,44 +84,25 @@ describe("resolveConfig precedence: defaults -> file -> env -> flags", () => {
   test("file overrides defaults", async () => {
     const c = await resolveConfig({ configFile: cfgFile, env: {} });
     expect(c.defaultCtx).toBe(2048);
-    expect(c.proxy.port).toBe(5000);
-    expect(c.fallbackEnabled).toBe(true);
+    expect(c.controlPort).toBe(5000);
   });
 
   test("env overrides file", async () => {
     const c = await resolveConfig({
       configFile: cfgFile,
-      env: { BUNSTASH_CTX: "3333" },
+      env: { LLAMACTL_CTX: "3333" },
     });
     expect(c.defaultCtx).toBe(3333); // env beats file
-    expect(c.proxy.port).toBe(5000); // file still applies where env is silent
+    expect(c.controlPort).toBe(5000); // file still applies where env is silent
   });
 
   test("flags override env and file", async () => {
     const c = await resolveConfig({
       configFile: cfgFile,
-      env: { BUNSTASH_CTX: "3333" },
-      flags: { defaultCtx: 4444, proxy: { host: "0.0.0.0" } },
+      env: { LLAMACTL_CTX: "3333" },
+      flags: { defaultCtx: 4444, controlPort: 6000 },
     });
     expect(c.defaultCtx).toBe(4444);
-    expect(c.proxy.host).toBe("0.0.0.0");
-  });
-
-  test("ollama-compat defaults proxy port to 11434 when unset elsewhere", async () => {
-    const c = await resolveConfig({
-      configFile: join(dir, "does-not-exist.json"),
-      env: { BUNSTASH_OLLAMA_COMPAT: "1" },
-    });
-    expect(c.ollamaCompat).toBe(true);
-    expect(c.proxy.port).toBe(PROXY_PORT_OLLAMA);
-  });
-
-  test("explicit proxy port wins over ollama-compat default", async () => {
-    const c = await resolveConfig({
-      configFile: join(dir, "does-not-exist.json"),
-      env: { BUNSTASH_OLLAMA_COMPAT: "1" },
-      flags: { proxy: { port: 7777 } },
-    });
-    expect(c.proxy.port).toBe(7777);
+    expect(c.controlPort).toBe(6000);
   });
 });

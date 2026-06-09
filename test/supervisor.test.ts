@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import type { Config, Model, ModelResolver } from "../src/types.ts";
-import { BunstashError, isBunstashError } from "../src/errors.ts";
+import { LlamactlError, isLlamactlError } from "../src/errors.ts";
 import { Supervisor, type SupervisorOptions } from "../src/supervisor/process.ts";
 
 const FAKE_SERVER = resolve(import.meta.dir, "helpers/fake-llama-server.ts");
@@ -25,6 +25,9 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     quant: "Q4_K_M",
     source: "config",
     mtimeMs: 0,
+    arch: null,
+    contextLength: null,
+    kind: "text",
     ...overrides,
   };
 }
@@ -34,7 +37,7 @@ function makeResolver(model: Model): ModelResolver {
   return {
     resolve(selector: string): Model {
       if (selector === model.id || selector === model.name) return model;
-      throw new BunstashError("model_not_found", `no model for "${selector}"`);
+      throw new LlamactlError("model_not_found", `no model for "${selector}"`);
     },
     all: () => [model],
   };
@@ -44,11 +47,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     modelPaths: [],
     controlPort: 48134,
-    proxy: { host: "127.0.0.1", port: 11435 },
     llamaServerPath: null,
     defaultCtx: 2048,
-    ollamaCompat: false,
-    fallbackEnabled: false,
+    defaultGpuLayers: 99,
     llamaServerArgs: [],
     ...overrides,
   };
@@ -91,7 +92,7 @@ function newSupervisor(opts: Partial<SupervisorOptions> = {}): Supervisor {
 }
 
 beforeEach(async () => {
-  logsDir = await mkdtemp(join(tmpdir(), "bunstash-sup-"));
+  logsDir = await mkdtemp(join(tmpdir(), "llamactl-sup-"));
 });
 
 afterEach(async () => {
@@ -110,7 +111,7 @@ afterEach(async () => {
 describe("Supervisor", () => {
   test("ready path: ensureReady reaches status ready and /health is 200", async () => {
     const sup = newSupervisor();
-    const rm0 = await sup.ensureReady("test-model");
+    const rm0 = await sup.ensureReady({ model: "test-model" });
     expect(rm0.status).toBe("ready");
 
     const res = await fetch(`http://127.0.0.1:${rm0.port}/health`);
@@ -120,34 +121,44 @@ describe("Supervisor", () => {
     expect(sup.get("test-model")?.status).toBe("ready");
   }, 15000);
 
+  test("start alone flips to ready in the background (no ensureReady call)", async () => {
+    const sup = newSupervisor();
+    const started = await sup.start({ model: "test-model" });
+    expect(started.status).toBe("starting");
+
+    // The supervisor's background probe must move it to ready on its own.
+    const becameReady = await waitFor(() => sup.get("test-model")?.status === "ready", 8000);
+    expect(becameReady).toBe(true);
+  }, 15000);
+
   test("readiness delay: ensureReady waits for /health to flip", async () => {
     process.env.FAKE_READY_DELAY_MS = "400";
     const sup = newSupervisor({ readinessTimeoutMs: 10000 });
 
-    const started = await sup.start("test-model");
+    const started = await sup.start({ model: "test-model" });
     expect(started.status).toBe("starting");
 
-    const ready = await sup.ensureReady("test-model");
+    const ready = await sup.ensureReady({ model: "test-model" });
     expect(ready.status).toBe("ready");
   }, 15000);
 
   test("already_running: second start of the same model throws", async () => {
     const sup = newSupervisor();
-    await sup.start("test-model");
+    await sup.start({ model: "test-model" });
 
     let err: unknown;
     try {
-      await sup.start("test-model");
+      await sup.start({ model: "test-model" });
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
-    expect((err as BunstashError).code).toBe("already_running");
+    expect(isLlamactlError(err)).toBe(true);
+    expect((err as LlamactlError).code).toBe("already_running");
   }, 15000);
 
   test("stop: removes the child and frees the port; second stop throws not_running", async () => {
     const sup = newSupervisor();
-    const ready = await sup.ensureReady("test-model");
+    const ready = await sup.ensureReady({ model: "test-model" });
     const port = ready.port;
 
     const stopped = await sup.stop("test-model");
@@ -171,11 +182,11 @@ describe("Supervisor", () => {
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
-    expect((err as BunstashError).code).toBe("not_running");
+    expect(isLlamactlError(err)).toBe(true);
+    expect((err as LlamactlError).code).toBe("not_running");
   }, 15000);
 
-  test("launch fail: ensureReady rejects with a BunstashError and leaves nothing running", async () => {
+  test("launch fail: ensureReady rejects with a LlamactlError and leaves nothing running", async () => {
     process.env.FAKE_FAIL_START = "1";
     const sup = newSupervisor({
       retryCap: 1,
@@ -185,12 +196,12 @@ describe("Supervisor", () => {
 
     let err: unknown;
     try {
-      await sup.ensureReady("test-model");
+      await sup.ensureReady({ model: "test-model" });
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
-    const code = (err as BunstashError).code;
+    expect(isLlamactlError(err)).toBe(true);
+    const code = (err as LlamactlError).code;
     expect(["launch_failed", "restart_cap_exceeded"]).toContain(code);
 
     // No healthy/ready child should be left behind.
@@ -208,7 +219,7 @@ describe("Supervisor", () => {
       readinessTimeoutMs: 8000,
     });
 
-    await sup.start("test-model");
+    await sup.start({ model: "test-model" });
 
     // Poll until it settles into "crashed" (cap exceeded). Restarts must never
     // grow beyond the cap.
@@ -244,13 +255,13 @@ describe("Supervisor", () => {
 
     let err: unknown;
     try {
-      await sup.ensureReady("test-model");
+      await sup.ensureReady({ model: "test-model" });
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
+    expect(isLlamactlError(err)).toBe(true);
     expect(["restart_cap_exceeded", "launch_failed"]).toContain(
-      (err as BunstashError).code,
+      (err as LlamactlError).code,
     );
   }, 15000);
 
@@ -260,23 +271,23 @@ describe("Supervisor", () => {
     });
     let err: unknown;
     try {
-      await sup.start("test-model");
+      await sup.start({ model: "test-model" });
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
-    expect((err as BunstashError).code).toBe("llama_server_missing");
+    expect(isLlamactlError(err)).toBe(true);
+    expect((err as LlamactlError).code).toBe("llama_server_missing");
   }, 15000);
 
   test("model_not_found propagates from the resolver", async () => {
     const sup = newSupervisor();
     let err: unknown;
     try {
-      await sup.start("does-not-exist");
+      await sup.start({ model: "does-not-exist" });
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
-    expect((err as BunstashError).code).toBe("model_not_found");
+    expect(isLlamactlError(err)).toBe(true);
+    expect((err as LlamactlError).code).toBe("model_not_found");
   }, 15000);
 });

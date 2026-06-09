@@ -1,14 +1,15 @@
 /**
  * The daemon (supervisor process) entry point. Owns the child llama-server
- * processes, the loopback control plane, and the proxy. On startup it writes a
- * fresh runtime.json (mode 0600) with a rotated bearer token, then runs until
- * a signal or a /shutdown request tears everything down cleanly.
+ * processes, the loopback control plane, and the resource sampler. On startup
+ * it writes a fresh runtime.json (mode 0600) with a rotated bearer token, then
+ * runs until a signal or a /shutdown request tears everything down cleanly.
  */
 
 import type { Config, Model, ModelResolver, Runtime } from "../types.ts";
 import { discoverModels, resolveModel, watchModels } from "../discovery/models.ts";
 import { Supervisor } from "../supervisor/process.ts";
-import { startProxy } from "../proxy/proxy.ts";
+import { Sampler } from "../monitor/sampler.ts";
+import { loadInstanceStore } from "../instances/store.ts";
 import { startControlPlane } from "./controlplane.ts";
 import { generateToken, writeRuntime, clearRuntime } from "./runtime.ts";
 import { logsDir } from "../config/paths.ts";
@@ -24,7 +25,6 @@ function resolveLlamaServer(config: Config): string {
 
 export interface RunDaemonResult {
   controlUrl: string;
-  proxyUrl: string;
   stop: () => Promise<void>;
 }
 
@@ -53,19 +53,20 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
     llamaServerPath: resolveLlamaServer(config),
   });
 
+  const instances = await loadInstanceStore();
+  const sampler = new Sampler({ supervisor });
+  sampler.start();
+
   const startedAt = Date.now();
   const token = generateToken();
 
   let shuttingDown = false;
-  const proxy = startProxy({
-    config,
-    supervisor,
-    models: () => currentModels,
-  });
 
   const control = await startControlPlane({
     token,
     supervisor,
+    instances,
+    sampler,
     models: () => currentModels,
     startPort: config.controlPort,
     pid: process.pid,
@@ -75,7 +76,6 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
 
   const runtime: Runtime = {
     controlUrl: control.url,
-    proxyUrl: proxy.url,
     token,
     pid: process.pid,
     startedAt,
@@ -86,8 +86,8 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
     if (shuttingDown) return;
     shuttingDown = true;
     stopWatch();
+    sampler.stop();
     control.stop();
-    proxy.stop();
     await supervisor.shutdownAll();
     await clearRuntime();
   };
@@ -99,7 +99,7 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  return { controlUrl: control.url, proxyUrl: proxy.url, stop };
+  return { controlUrl: control.url, stop };
 }
 
 /**

@@ -1,13 +1,13 @@
 /**
  * Resolve per-user directories for state, cache, and config. Honors XDG on
- * Unix; uses sane platform equivalents on macOS and Windows. All bunstash
- * files live under a `bunstash/` subdir of these.
+ * Unix; uses sane platform equivalents on macOS and Windows. All llamactl
+ * files live under a `llamactl/` subdir of these.
  */
 
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const APP = "bunstash";
+const APP = "llamactl";
 
 function env(name: string): string | undefined {
   const v = process.env[name];
@@ -55,6 +55,11 @@ export function runtimePath(): string {
 /** Absolute path to the user config file. */
 export function configPath(): string {
   return join(configDir(), "config.json");
+}
+
+/** Absolute path to the saved instance-profiles file. */
+export function instancesPath(): string {
+  return join(configDir(), "instances.json");
 }
 
 /** Directory holding per-launch logs. */

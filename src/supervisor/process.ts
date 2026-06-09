@@ -14,12 +14,14 @@ import { join } from "node:path";
 import type {
   Config,
   ISupervisor,
+  LaunchSpec,
   Model,
   ModelResolver,
   RunningModel,
 } from "../types.ts";
-import { BunstashError } from "../errors.ts";
-import { findFreePort } from "../net/ports.ts";
+import { LlamactlError } from "../errors.ts";
+import { findFreePort, isPortFree } from "../net/ports.ts";
+import { applyDefaults, specToArgs, validateSpec } from "../instances/spec.ts";
 
 export interface SupervisorOptions {
   config: Config;
@@ -48,8 +50,8 @@ interface Entry {
   model: RunningModel;
   /** The resolved Model (path/name/etc) so we can respawn without re-resolving. */
   resolved: Model;
-  /** Context size this child was launched with. */
-  ctx: number;
+  /** The fully-defaulted spec this child was launched with. */
+  spec: LaunchSpec;
   /** The live child process handle. */
   proc: Subprocess;
   /** True while a deliberate stop is in progress (suppresses crash handling). */
@@ -96,11 +98,12 @@ export class Supervisor implements ISupervisor {
     return this.children.get(modelId)?.model;
   }
 
-  async start(selector: string, ctx?: number): Promise<RunningModel> {
-    const model = this.resolver.resolve(selector); // may throw model_not_found / ambiguous_model
+  async start(spec: LaunchSpec): Promise<RunningModel> {
+    validateSpec(spec);
+    const model = this.resolver.resolve(spec.model); // may throw model_not_found / ambiguous_model
 
     if (this.children.has(model.id)) {
-      throw new BunstashError(
+      throw new LlamactlError(
         "already_running",
         `Model "${model.id}" is already running.`,
         { detail: { modelId: model.id } },
@@ -111,30 +114,33 @@ export class Supervisor implements ISupervisor {
     // command resolved from PATH). Absolute or explicitly relative paths must
     // exist; a bare binary name is left to spawn to resolve.
     if (this.looksLikePath(this.llamaServerPath) && !existsSync(this.llamaServerPath)) {
-      throw new BunstashError(
+      throw new LlamactlError(
         "llama_server_missing",
         `llama-server binary not found at "${this.llamaServerPath}".`,
         { detail: { path: this.llamaServerPath } },
       );
     }
 
-    const resolvedCtx = ctx ?? this.config.defaultCtx;
-    const entry = await this.spawnChild(model, resolvedCtx);
+    const resolvedSpec = applyDefaults(spec, this.config);
+    const entry = await this.spawnChild(model, resolvedSpec);
     this.children.set(model.id, entry);
+    // Proactively watch /health in the background so the status flips to
+    // "ready" on its own — nothing else polls it now that the proxy is gone.
+    this.beginReadinessProbe(entry);
     return entry.model;
   }
 
-  async ensureReady(selector: string, ctx?: number): Promise<RunningModel> {
-    const model = this.resolver.resolve(selector);
+  async ensureReady(spec: LaunchSpec): Promise<RunningModel> {
+    const model = this.resolver.resolve(spec.model);
     let entry = this.children.get(model.id);
     if (!entry) {
-      await this.start(model.id, ctx);
+      await this.start(spec);
       entry = this.children.get(model.id);
     }
     if (!entry) {
       // Resolution succeeded but the child vanished immediately (e.g. crashed
       // and exceeded the cap during start). Surface a launch failure.
-      throw new BunstashError(
+      throw new LlamactlError(
         "launch_failed",
         `Model "${model.id}" failed to launch.`,
         { detail: { modelId: model.id } },
@@ -148,7 +154,7 @@ export class Supervisor implements ISupervisor {
 
       if (!current) {
         // Child was removed (stopped or shut down) out from under us.
-        throw new BunstashError(
+        throw new LlamactlError(
           "launch_failed",
           `Model "${model.id}" is no longer running.`,
           { detail: { modelId: model.id } },
@@ -156,7 +162,7 @@ export class Supervisor implements ISupervisor {
       }
 
       if (current.model.status === "crashed") {
-        throw new BunstashError(
+        throw new LlamactlError(
           "restart_cap_exceeded",
           `Model "${model.id}" crashed too many times: ${current.crashReason ?? "unknown"}.`,
           { detail: { modelId: model.id, reason: current.crashReason } },
@@ -177,7 +183,7 @@ export class Supervisor implements ISupervisor {
     } catch {
       /* already gone */
     }
-    throw new BunstashError(
+    throw new LlamactlError(
       "launch_failed",
       `Model "${model.id}" did not become ready within ${this.readinessTimeoutMs}ms.`,
       { detail: { modelId: model.id } },
@@ -187,7 +193,7 @@ export class Supervisor implements ISupervisor {
   async stop(selector: string): Promise<RunningModel> {
     const entry = this.findEntry(selector);
     if (!entry) {
-      throw new BunstashError("not_running", `No running model for "${selector}".`, {
+      throw new LlamactlError("not_running", `No running model for "${selector}".`, {
         detail: { selector },
       });
     }
@@ -215,24 +221,35 @@ export class Supervisor implements ISupervisor {
   /* Internals                                                               */
   /* ----------------------------------------------------------------------- */
 
+  /**
+   * Allocate the loopback port for a spec: honour a pinned `spec.port` (failing
+   * cleanly if it is busy), otherwise scan upward from `portBase`.
+   */
+  private async allocatePort(spec: LaunchSpec): Promise<number> {
+    const host = spec.host ?? "127.0.0.1";
+    if (spec.port !== undefined) {
+      if (!(await isPortFree(spec.port, host))) {
+        throw new LlamactlError(
+          "launch_failed",
+          `Port ${spec.port} is already in use.`,
+          { detail: { port: spec.port } },
+        );
+      }
+      return spec.port;
+    }
+    return findFreePort(this.portBase, host);
+  }
+
   /** Spawn a child for `model`, wire up the exit handler, return the Entry. */
-  private async spawnChild(model: Model, ctx: number): Promise<Entry> {
-    const port = await findFreePort(this.portBase, "127.0.0.1");
+  private async spawnChild(model: Model, spec: LaunchSpec): Promise<Entry> {
+    const port = await this.allocatePort(spec);
     const startedAt = Date.now();
     const logPath = join(this.logsDir, `${model.id}-${startedAt}.log`);
 
     const cmd = [
       ...this.spawnPrefix,
       this.llamaServerPath,
-      "-m",
-      model.path,
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(port),
-      "--ctx-size",
-      String(ctx),
-      ...this.config.llamaServerArgs,
+      ...specToArgs({ modelPath: model.path, port, spec, configArgs: this.config.llamaServerArgs }),
     ];
 
     const logFile = Bun.file(logPath);
@@ -246,7 +263,7 @@ export class Supervisor implements ISupervisor {
         stdin: "ignore",
       });
     } catch (e) {
-      throw new BunstashError(
+      throw new LlamactlError(
         "launch_failed",
         `Failed to spawn llama-server for "${model.id}": ${e instanceof Error ? e.message : String(e)}`,
         { detail: { modelId: model.id, cmd } },
@@ -263,12 +280,13 @@ export class Supervisor implements ISupervisor {
       startedAt,
       restarts: 0,
       logPath,
+      spec,
     };
 
     const entry: Entry = {
       model: running,
       resolved: model,
-      ctx,
+      spec,
       proc,
       stopping: false,
       exitTimes: [],
@@ -323,7 +341,7 @@ export class Supervisor implements ISupervisor {
 
     let port: number;
     try {
-      port = await findFreePort(this.portBase, "127.0.0.1");
+      port = await this.allocatePort(entry.spec);
     } catch {
       entry.model.status = "crashed";
       entry.crashReason = `could not allocate a port to restart after exit code ${prevCode}`;
@@ -338,15 +356,12 @@ export class Supervisor implements ISupervisor {
     const cmd = [
       ...this.spawnPrefix,
       this.llamaServerPath,
-      "-m",
-      entry.resolved.path,
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(port),
-      "--ctx-size",
-      String(entry.ctx),
-      ...this.config.llamaServerArgs,
+      ...specToArgs({
+        modelPath: entry.resolved.path,
+        port,
+        spec: entry.spec,
+        configArgs: this.config.llamaServerArgs,
+      }),
     ];
 
     const logFile = Bun.file(logPath);
@@ -367,6 +382,35 @@ export class Supervisor implements ISupervisor {
     entry.model.logPath = logPath;
     entry.model.restarts += 1;
     this.attachExitHandler(entry);
+    // A respawned child starts "starting" again — re-arm the readiness probe.
+    this.beginReadinessProbe(entry);
+  }
+
+  /**
+   * Poll `/health` in the background until the child reports ready, then flip
+   * its status to "ready". Self-cancels if the entry is stopped, replaced,
+   * crashes, or the readiness window elapses (a child that never serves health
+   * but also never exits simply stays "starting"; the exit handler covers
+   * actual crashes). Runs in addition to any blocking `ensureReady` caller.
+   */
+  private beginReadinessProbe(entry: Entry): void {
+    const deadline = Date.now() + this.readinessTimeoutMs;
+    const tick = async (): Promise<void> => {
+      // Bail if this entry is no longer the live child for its id.
+      if (this.children.get(entry.model.modelId) !== entry) return;
+      if (entry.stopping || this.shuttingDown) return;
+      if (entry.model.status !== "starting") return; // ready, crashed, or stopping
+
+      if (await this.probeHealth(entry.model.port)) {
+        // Re-check identity/state after the await before committing the flip.
+        if (this.children.get(entry.model.modelId) === entry && entry.model.status === "starting") {
+          entry.model.status = "ready";
+        }
+        return;
+      }
+      if (Date.now() < deadline) setTimeout(() => void tick(), 250);
+    };
+    setTimeout(() => void tick(), 100);
   }
 
   /** SIGTERM, wait up to GRACE_MS, then SIGKILL. Resolves when the child exits. */

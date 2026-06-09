@@ -4,8 +4,16 @@
  * padded table on a TTY, TSV when piped.
  */
 
-import type { Config, Model, RunningModel, PsResponse } from "../types.ts";
-import { BunstashError, isBunstashError } from "../errors.ts";
+import type {
+  Config,
+  InstanceConfig,
+  InstancesResponse,
+  LaunchSpec,
+  Model,
+  RunningModel,
+  PsResponse,
+} from "../types.ts";
+import { LlamactlError, isLlamactlError } from "../errors.ts";
 import { discoverModels } from "../discovery/models.ts";
 import { connectDaemon, currentRuntime, clientFor } from "./../daemon/client.ts";
 import { readLiveRuntime, isProcessAlive, clearRuntime } from "../daemon/runtime.ts";
@@ -19,7 +27,39 @@ import {
   humanUptime,
   renderTable,
 } from "./output.ts";
-import { type ParsedArgs, numOpt } from "./args.ts";
+import { type ParsedArgs, numOpt, strOpt } from "./args.ts";
+
+/** Build a LaunchSpec from a model selector and the start/instance CLI flags. */
+function flagsToSpec(model: string, args: ParsedArgs): LaunchSpec {
+  const spec: LaunchSpec = { model };
+  const ctx = numOpt(args, "ctx");
+  if (ctx !== undefined) spec.ctxSize = ctx;
+  const ngl = numOpt(args, "ngl") ?? numOpt(args, "gpu-layers");
+  if (ngl !== undefined) spec.gpuLayers = ngl;
+  const threads = numOpt(args, "threads");
+  if (threads !== undefined) spec.threads = threads;
+  const batch = numOpt(args, "batch-size");
+  if (batch !== undefined) spec.batchSize = batch;
+  if (args.options["flash-attn"] === true) spec.flashAttn = "on";
+  else if (args.options["flash-attn"] === false) spec.flashAttn = "off";
+  if (args.options["reasoning"] === true) spec.reasoning = "on";
+  else if (args.options["reasoning"] === false) spec.reasoning = "off";
+  if (args.options["jinja"] === true) spec.jinja = "on";
+  else if (args.options["jinja"] === false) spec.jinja = "off";
+  const ctk = strOpt(args, "cache-type-k");
+  if (ctk !== undefined) spec.cacheTypeK = ctk;
+  const ctv = strOpt(args, "cache-type-v");
+  if (ctv !== undefined) spec.cacheTypeV = ctv;
+  const tmpl = strOpt(args, "chat-template");
+  if (tmpl !== undefined) spec.chatTemplate = tmpl;
+  const host = strOpt(args, "host");
+  if (host !== undefined) spec.host = host;
+  const port = numOpt(args, "port");
+  if (port !== undefined) spec.port = port;
+  const extra = strOpt(args, "extra-args");
+  if (extra !== undefined) spec.extraArgs = extra.split(/\s+/).filter((s) => s.length > 0);
+  return spec;
+}
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -53,27 +93,142 @@ export async function cmdList(config: Config, mode: OutputMode): Promise<number>
 /* ------------------------------- start ----------------------------------- */
 
 export async function cmdStart(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const instance = strOpt(args, "instance");
   const selector = args.positionals[1];
-  if (!selector) throw new BunstashError("bad_request", "usage: bunstash start <model>");
-  const ctx = numOpt(args, "ctx");
+  if (!instance && !selector) {
+    throw new LlamactlError("bad_request", "usage: llamactl start <model> [flags]  |  llamactl start --instance <id>");
+  }
 
+  const body = instance ? { instance } : { spec: flagsToSpec(selector!, args) };
   const conn = await connectDaemon({ config });
-  const running = await conn.request<RunningModel>("POST", "/start", { model: selector, ctx });
+  const running = await conn.request<RunningModel>("POST", "/start", body);
 
   if (mode.json) {
     emitJson(running);
     return 0;
   }
-  emitLine(`Started ${running.name} (${running.modelId}) on port ${running.port} [pid ${running.pid}]`);
-  emitLine(`Point an OpenAI client at ${conn.runtime.proxyUrl}/v1 and request model "${running.modelId}".`);
+  emitLine(`Started ${running.name} (${running.modelId}) on http://127.0.0.1:${running.port} [pid ${running.pid}]`);
   return 0;
+}
+
+/* ------------------------------ instance --------------------------------- */
+
+export async function cmdInstance(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const sub = args.positionals[1];
+  switch (sub) {
+    case "ls":
+    case "list":
+      return cmdInstanceList(config, mode);
+    case "add":
+      return cmdInstanceAdd(args, config, mode);
+    case "rm":
+    case "remove":
+      return cmdInstanceRemove(args, config, mode);
+    case "edit":
+      return cmdInstanceEdit(args, config, mode);
+    default:
+      throw new LlamactlError(
+        "bad_request",
+        `unknown instance subcommand: ${sub ?? "(none)"} — use ls | add | rm | edit`,
+      );
+  }
+}
+
+async function cmdInstanceList(config: Config, mode: OutputMode): Promise<number> {
+  const conn = await connectDaemon({ config });
+  const { instances } = await conn.request<InstancesResponse>("GET", "/instances");
+
+  if (mode.json) {
+    emitJson({ instances });
+    return 0;
+  }
+  if (instances.length === 0) {
+    emitLine("No saved instances. Create one with 'llamactl instance add <model> --name <id>'.");
+    return 0;
+  }
+  const columns: Column<InstanceConfig>[] = [
+    { header: "ID", get: (i) => i.id },
+    { header: "NAME", get: (i) => i.name },
+    { header: "MODEL", get: (i) => i.spec.model },
+    { header: "CTX", get: (i) => (i.spec.ctxSize != null ? String(i.spec.ctxSize) : "-"), alignRight: true },
+    { header: "NGL", get: (i) => (i.spec.gpuLayers != null ? String(i.spec.gpuLayers) : "-"), alignRight: true },
+    { header: "PORT", get: (i) => (i.spec.port != null ? String(i.spec.port) : "auto"), alignRight: true },
+  ];
+  emitLine(renderTable(instances, columns, mode));
+  return 0;
+}
+
+async function cmdInstanceAdd(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const model = args.positionals[2];
+  if (!model) throw new LlamactlError("bad_request", "usage: llamactl instance add <model> [--name <id>] [flags]");
+  const name = strOpt(args, "name");
+  const spec = flagsToSpec(model, args);
+
+  const conn = await connectDaemon({ config });
+  const created = await conn.request<InstanceConfig>("POST", "/instances", { name, spec });
+
+  if (mode.json) {
+    emitJson(created);
+    return 0;
+  }
+  emitLine(`Saved instance "${created.id}" for model ${created.spec.model}.`);
+  return 0;
+}
+
+async function cmdInstanceRemove(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const id = args.positionals[2];
+  if (!id) throw new LlamactlError("bad_request", "usage: llamactl instance rm <id>");
+
+  const conn = await connectDaemon({ config });
+  await conn.request<{ ok: true }>("DELETE", `/instances/${encodeURIComponent(id)}`);
+
+  if (mode.json) {
+    emitJson({ removed: true, id });
+    return 0;
+  }
+  emitLine(`Removed instance "${id}".`);
+  return 0;
+}
+
+async function cmdInstanceEdit(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const id = args.positionals[2];
+  if (!id) throw new LlamactlError("bad_request", "usage: llamactl instance edit <id> [--name <name>] [flags]");
+  const name = strOpt(args, "name");
+  // The model selector stays the same unless re-specified as a positional.
+  const model = args.positionals[3];
+
+  const patch: { name?: string; spec?: LaunchSpec } = {};
+  if (name !== undefined) patch.name = name;
+  if (model !== undefined || hasSpecFlags(args)) {
+    // Rebuild the spec; model defaults to the id if not re-given (the daemon
+    // resolves it). Callers re-supplying flags replace the whole spec.
+    patch.spec = flagsToSpec(model ?? id, args);
+  }
+
+  const conn = await connectDaemon({ config });
+  const updated = await conn.request<InstanceConfig>("PUT", `/instances/${encodeURIComponent(id)}`, patch);
+
+  if (mode.json) {
+    emitJson(updated);
+    return 0;
+  }
+  emitLine(`Updated instance "${updated.id}".`);
+  return 0;
+}
+
+/** Whether any spec-shaping flag is present on the args. */
+function hasSpecFlags(args: ParsedArgs): boolean {
+  const keys = ["ctx", "ngl", "gpu-layers", "threads", "batch-size", "flash-attn",
+    "reasoning", "jinja", "cache-type-k", "cache-type-v", "chat-template",
+    "host", "port", "extra-args"];
+  return keys.some((k) => args.options[k] !== undefined);
 }
 
 /* -------------------------------- stop ----------------------------------- */
 
 export async function cmdStop(args: ParsedArgs, _config: Config, mode: OutputMode): Promise<number> {
   const selector = args.positionals[1];
-  if (!selector) throw new BunstashError("bad_request", "usage: bunstash stop <model>");
+  if (!selector) throw new LlamactlError("bad_request", "usage: llamactl stop <model>");
 
   const rt = await readLiveRuntime();
   if (!rt) {
@@ -135,10 +290,10 @@ export async function cmdDaemonStart(config: Config, mode: OutputMode): Promise<
   const existing = await readLiveRuntime();
   if (existing) {
     if (mode.json) {
-      emitJson({ status: "already_running", controlUrl: existing.controlUrl, proxyUrl: existing.proxyUrl });
+      emitJson({ status: "already_running", controlUrl: existing.controlUrl });
       return 0;
     }
-    emitLine(`Daemon already running (pid ${existing.pid}). Proxy at ${existing.proxyUrl}`);
+    emitLine(`Daemon already running (pid ${existing.pid}).`);
     return 0;
   }
 
@@ -149,12 +304,10 @@ export async function cmdDaemonStart(config: Config, mode: OutputMode): Promise<
       status: "started",
       pid: conn.runtime.pid,
       controlUrl: conn.runtime.controlUrl,
-      proxyUrl: conn.runtime.proxyUrl,
     });
     return 0;
   }
   emitLine(`Daemon started (pid ${conn.runtime.pid}).`);
-  emitLine(`Proxy:         ${conn.runtime.proxyUrl}/v1`);
   emitLine(`Control plane: ${conn.runtime.controlUrl} (loopback, token-guarded)`);
   return 0;
 }
@@ -218,9 +371,9 @@ export function cmdDoctor(mode: OutputMode): number {
 
 /** Render a caught error per the output mode and return a process exit code. */
 export function reportError(e: unknown, mode: OutputMode): number {
-  const err = isBunstashError(e)
+  const err = isLlamactlError(e)
     ? e
-    : new BunstashError("internal", e instanceof Error ? e.message : String(e));
+    : new LlamactlError("internal", e instanceof Error ? e.message : String(e));
   if (mode.json) {
     emitJson(err.toApiError());
   } else {

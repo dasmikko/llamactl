@@ -1,180 +1,192 @@
-# bunstash
+# llamactl
 
-A fast, terminal-native launcher for local LLMs that run via
-[`llama-server`](https://github.com/ggml-org/llama.cpp) (from llama.cpp).
+A terminal UI for managing local [`llama-server`](https://github.com/ggml-org/llama.cpp)
+(llama.cpp) instances on your machine.
 
-It's one Bun executable wearing three hats:
+llamactl discovers the GGUF models you already have cached, lets you set and save
+`llama-server` flags per model, runs instances in the background via a small daemon
+(so the UI doesn't have to stay open), and shows live CPU / RAM / GPU / VRAM usage.
 
-- **CLI** — what you type (`bunstash start qwen-coder`, `bunstash list`).
-- **Daemon (supervisor)** — a long-running process that owns the child
-  `llama-server` processes, a loopback control plane, and the proxy.
-- **Proxy** — a loopback, OpenAI-compatible reverse proxy that routes by model
-  name and auto-starts a model on first request.
+- **TUI** — a full-screen view with live CPU / RAM / GPU / VRAM gauges (and
+  temperatures), an **Active instances** list above a **Models** catalog, an
+  interactive flag editor, and a log tail. Start/stop, edit, and inspect without
+  leaving the terminal.
+- **Daemon (supervisor)** — a long-running background process that owns the child
+  `llama-server` processes, a loopback control plane, and the resource sampler.
+- **Headless CLI** — every action is also scriptable (`llamactl start`, `ps`,
+  `instance add`, …) with a `--json` contract for automation.
 
-bunstash is a transparent, zero-overhead wrapper around the *unmodified*
-upstream `llama-server` — it does not reimplement inference and it streams
-responses straight through.
-
-> **Security default: loopback only.** The proxy and control plane bind to
-> `127.0.0.1`. The proxy has no auth by design (single-user local threat model);
-> LAN exposure is an explicit, off-by-default opt-in (a later phase).
+> **Loopback only.** The control plane binds to `127.0.0.1` and is guarded by a
+> bearer token rotated on every daemon start. Instances bind to `127.0.0.1` by
+> default; binding off-loopback is an explicit per-instance opt-in.
 
 ---
 
 ## Requirements
 
-- [Bun](https://bun.sh) (latest; developed against 1.3.x)
-- A `llama-server` binary on your `PATH`, or point bunstash at one with
-  `--llama-server /path/to/llama-server` (or `BUNSTASH_LLAMA_SERVER`).
+- [Bun](https://bun.sh) (developed against 1.3.x)
+- A `llama-server` binary on your `PATH`, or pointed to via `--llama-server` /
+  `LLAMACTL_LLAMA_SERVER`.
+- Optional: `nvidia-smi` for GPU util / VRAM / temperature (NVIDIA). Without it,
+  llamactl still shows CPU and RAM and hides the GPU columns.
+- CPU temperature is read from Linux `sysfs` (`/sys/class/hwmon`, `/sys/class/thermal`)
+  when a CPU sensor is exposed; it's omitted otherwise.
 
-## Install / build
-
-Run straight from source:
+## Install / run
 
 ```sh
 bun install
-bun run src/index.ts list
+bun run src/index.ts          # opens the TUI
 ```
 
-Or compile to a single self-contained executable:
+Or compile a single self-contained executable:
 
 ```sh
-bun run build          # produces ./bunstash
-./bunstash list
+bun run build                 # produces ./llamactl
+./llamactl
 ```
 
-## Quick start
+## The TUI
 
-```sh
-# 1. See what GGUF models bunstash can find on disk
-bunstash list
+Run `llamactl` with no arguments. It takes over the terminal (alternate screen,
+restored on quit) and shows:
 
-# 2. Start one (auto-starts the background daemon if it isn't running)
-bunstash start qwen3
+- a **header** with system CPU/RAM gauges (+ CPU temp) and per-GPU util/VRAM
+  gauges (+ GPU temp);
+- an **ACTIVE INSTANCES** list of running models with live runtime columns
+  (status, port, pid, CPU%, RAM, VRAM, uptime);
+- a **MODELS** catalog of everything else, with columns read from GGUF metadata:
+  arch, kind (text/vision/embedding), quant, size, supported context, and whether
+  a saved profile exists.
 
-# 3. See what's running (ports, pids, uptime)
-bunstash ps
+A model moves between the two lists as you start/stop it, and the cursor follows it.
 
-# 4. Point any OpenAI-compatible client at the proxy
-curl http://127.0.0.1:11435/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"qwen3","messages":[{"role":"user","content":"hello"}]}'
-```
+| Key | Action |
+| --- | --- |
+| `j`/`k`, ↓/↑ | Move selection (`g`/`G` jump to top/bottom) |
+| `Enter` | Start the selected model / profile (or stop it if running) |
+| `e` | Edit launch flags for the selected row |
+| `n` | Create a new saved instance profile |
+| `d` | Delete the selected saved profile (confirm with `d`/`y`) |
+| `l` | Tail the running instance's log |
+| `/` | Filter the list |
+| `?` | Help |
+| `q` | Quit (the daemon and instances keep running) |
 
-You don't actually have to `start` a model first — the proxy **auto-starts** an
-unloaded model on the first request for it, waits for its `/health` to go green,
-then serves. `start` is just there for when you want it warm ahead of time.
+### The flag editor
 
-## Commands
+`e`/`n` open a form over a `LaunchSpec`. `Tab`/`↑↓` move between fields, text
+fields type directly, and choosers use `←/→`:
+
+- **Ctx size** scrolls common presets (2048 → … → 131072) then a **Custom** entry
+  you type;
+- **Cache K/V** (KV-cache quant), **Flash attn** (auto/on/off), and **Reasoning**
+  (auto/on/off) / **Jinja** (default/on/off) are cycled with `←/→`.
+
+`Enter` saves the profile, `Esc` cancels.
+
+## Headless CLI
 
 | Command | What it does |
 | --- | --- |
-| `bunstash list` | List discovered GGUF models (padded table on a TTY, TSV when piped, JSON with `--json`). |
-| `bunstash start <model>` | Resolve a model (by id, name, substring, or path) and start it. |
-| `bunstash stop <model>` | Stop a running model. |
-| `bunstash ps` | Show running models with ports, pids, uptime, restarts. |
-| `bunstash daemon start` | Start the background supervisor explicitly. |
-| `bunstash daemon stop` | Stop the supervisor and all its children. |
-| `bunstash init` / `recommend` / `doctor` | Planned (later phases). |
+| `llamactl list` | List discovered GGUF models |
+| `llamactl start <model> [flags]` | Start a model with ad-hoc flags |
+| `llamactl start --instance <id>` | Start a saved profile |
+| `llamactl stop <model>` | Stop a running instance |
+| `llamactl ps` | Show running instances (port, pid, uptime, restarts) |
+| `llamactl instance ls\|add\|rm\|edit` | Manage saved launch profiles |
+| `llamactl daemon start\|stop` | Start/stop the background supervisor |
 
-### Model selectors
+Launch flags (for `start` and `instance add/edit`):
 
-`start` / `stop` accept anything that unambiguously identifies a model:
+| Flag | llama-server flag | Notes |
+| --- | --- | --- |
+| `--ctx <n>` | `--ctx-size` | context size |
+| `--ngl <n>` | `--gpu-layers` | GPU layers (default 99 = all) |
+| `--threads <n>` | `--threads` | |
+| `--batch-size <n>` | `--batch-size` | |
+| `--flash-attn` / `--no-flash-attn` | `--flash-attn on\|off` | unset ⇒ auto |
+| `--reasoning` / `--no-reasoning` | `--reasoning on\|off` | unset ⇒ auto |
+| `--jinja` / `--no-jinja` | `--jinja` / `--no-jinja` | unset ⇒ llama.cpp default |
+| `--cache-type-k <t>` / `--cache-type-v <t>` | `--cache-type-k/-v` | f16, q8_0, q4_0, … |
+| `--chat-template <t>` | `--chat-template` | built-in name or Jinja string |
+| `--host <addr>` | `--host` | default 127.0.0.1 |
+| `--port <n>` | `--port` | pin a port (default: auto) |
+| `--extra-args "<a b c>"` | (appended verbatim) | escape hatch for any other flag |
 
-- the canonical **id** (`qwen3.5-9b-q4_k_m`)
-- an exact **path** to a `.gguf` file
-- an exact **name** (case-insensitive)
-- a **substring** of the id or name — if it matches exactly one model
-
-An ambiguous substring lists the candidates instead of guessing.
-
-## The `--json` contract
-
-Pass `--json` to any command and the **only** thing written to stdout is a
-single machine-readable JSON document — no colors, no spinners, no preamble.
-This is the agent-facing interface. Errors are emitted as a typed envelope:
-
-```json
-{ "error": { "code": "model_not_found", "message": "no model matches 'qwen99'" } }
-```
+Pass `--json` to any command for a single machine-readable document on stdout and
+nothing else. Errors are a typed envelope: `{ "error": { "code": "...", "message": "..." } }`.
 
 ## Configuration
 
 Precedence, lowest to highest:
 
 ```
-built-in defaults  →  config file  →  environment (BUNSTASH_*)  →  CLI flags
+built-in defaults  →  config file  →  environment (LLAMACTL_*)  →  CLI flags
 ```
 
-Config file (JSON) location follows XDG: `$XDG_CONFIG_HOME/bunstash/config.json`
-(falling back to `~/.config/bunstash/config.json`). Example:
+The config file is JSON at `$XDG_CONFIG_HOME/llamactl/config.json`
+(`~/.config/llamactl/config.json`). Saved instance profiles live alongside it in
+`instances.json`. Example config:
 
 ```json
 {
   "modelPaths": ["/srv/models"],
   "defaultCtx": 8192,
-  "fallbackEnabled": true,
   "llamaServerPath": "/usr/local/bin/llama-server"
 }
 ```
 
 | Setting | Env var | Flag | Default |
 | --- | --- | --- | --- |
-| Extra model dirs | `BUNSTASH_MODEL_PATHS` (`:`-separated) | `--model-paths a:b` | — |
-| Control-plane port | `BUNSTASH_CONTROL_PORT` | `--control-port` | `48134` (scans up) |
-| Proxy host | `BUNSTASH_PROXY_HOST` | `--host` | `127.0.0.1` |
-| Proxy port | `BUNSTASH_PROXY_PORT` | `--port` | `11435` |
-| Default context size | `BUNSTASH_CTX` | `--ctx` | `4096` |
-| `llama-server` path | `BUNSTASH_LLAMA_SERVER` | `--llama-server` | from `PATH` |
-| Fallback to a ready peer | `BUNSTASH_FALLBACK` | `--fallback` | off |
-| Ollama-compat mode | `BUNSTASH_OLLAMA_COMPAT` | `--ollama-compat` | off |
+| Extra model dirs | `LLAMACTL_MODEL_PATHS` (`:`-separated) | `--model-paths a:b` | — |
+| Control-plane port | `LLAMACTL_CONTROL_PORT` | `--control-port` | `48134` (scans up) |
+| Default context size | `LLAMACTL_CTX` | `--ctx` | `4096` |
+| Default GPU layers | `LLAMACTL_GPU_LAYERS` | `--ngl` | `99` (offload all) |
+| `llama-server` path | `LLAMACTL_LLAMA_SERVER` | `--llama-server` | from `PATH` |
 
-bunstash scans `~/.cache/huggingface/`, `~/.ollama/models`, and
+By default llamactl offloads **all** layers to the GPU (`--gpu-layers 99`). For a
+model too large to fit in VRAM, lower it per launch (`--ngl 20`) or in a saved
+profile; set `defaultGpuLayers: 0` (or `--ngl 0`) to run on CPU. A CPU-only
+`llama-server` build simply ignores the flag.
+
+llamactl scans `~/.cache/huggingface/`, `~/.ollama/models`, and
 `~/.lmstudio/models` for `.gguf` files automatically, plus any `modelPaths` you
 add. New downloads are picked up live without a restart.
 
 ## How it fits together
 
 ```
-        bunstash CLI ──(loopback HTTP + bearer token)──► Control plane ─┐
-                                                                        │
-  OpenAI client ──(loopback HTTP, no auth)──► Proxy ──► Supervisor ◄────┘
-                                                 │
-                                                 └─► llama-server child(ren)
+        llamactl TUI ─┐
+                      ├─(loopback HTTP + bearer token)─► Control plane ──► Supervisor ──► llama-server child(ren)
+        llamactl CLI ─┘                                        ▲
+                                                   Resource sampler (/proc + nvidia-smi)
 ```
 
-- **runtime.json** (mode `0600`, in `$XDG_STATE_HOME/bunstash/`) holds the
-  control-plane URL, proxy URL, daemon PID, and a fresh bearer token that is
-  **rotated on every daemon start**. The token is never logged.
+- **runtime.json** (mode `0600`, in `$XDG_STATE_HOME/llamactl/`) holds the
+  control-plane URL, a fresh bearer token (rotated every start), and the daemon
+  PID. The token is never logged.
 - The **control plane** (`127.0.0.1:48134`, scanning upward) requires the bearer
-  token on every route except `GET /health`, compared in constant time. It is
-  hard-wired to loopback and is never bindable off-host.
-- The **proxy** (`127.0.0.1:11435`) is intentionally separate. Forwarded routes:
-  `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`.
-  Streaming (SSE / chunked) responses pass straight through, never buffered.
-- **Fallback** (opt-in): if a launch fails and `fallbackEnabled` is set, the
-  proxy routes to a ready peer model and stamps the response with
-  `x-bunstash-served-by` and `x-bunstash-fallback-reason`. Disabled → it hard-
-  fails with a typed error.
+  token on every route except `GET /health`, compared in constant time. Routes:
+  `/models`, `/ps`, `/stats`, `/instances` (CRUD), `/start`, `/stop`, `/shutdown`.
+- The **resource sampler** runs in the daemon, sampling system CPU/RAM (+ CPU
+  temp from `sysfs`) from `/proc` and GPU util / VRAM / temp from `nvidia-smi` on
+  an interval, joining per-instance usage by PID. The TUI polls `/stats`.
+- **Model discovery** reads a small slice of each `.gguf` header to extract the
+  architecture, supported context length, and kind (text / vision / embedding).
 
-Per-launch logs land in `$XDG_CACHE_HOME/bunstash/logs/<model-id>-<ts>.log`.
+Per-launch logs land in `$XDG_CACHE_HOME/llamactl/logs/<model-id>-<ts>.log`.
 
 ## Development
 
 ```sh
 bun test                 # run the test suite
 bun run typecheck        # tsc --noEmit (strict)
-bun run build            # compile ./bunstash
+bun run build            # compile ./llamactl
 ```
 
-Tests cover model-id resolution, config merging, port-scan fallback,
-stale-`runtime.json` detection, process supervision (readiness, crash/restart
-cap), control-plane auth/routing, and proxy routing/streaming/fallback — using a
-tiny fake `llama-server` so no real model is needed.
-
-## Status
-
-Phases 1–5 are implemented: CLI + config, model discovery, daemon + control
-plane, process supervision, and the OpenAI-compatible proxy. LAN exposure,
-Ollama-compat mode, and the `init`/`recommend`/`doctor`/TUI work are planned for
-later phases.
+Tests cover spec→argv mapping, config merging, model-id resolution, port-scan
+fallback, stale-`runtime.json` detection, process supervision (readiness,
+crash/restart cap), control-plane auth/routing, the instance store, and the
+resource-sampler math — using a tiny fake `llama-server` so no real model is
+needed.

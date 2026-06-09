@@ -1,26 +1,41 @@
 /**
- * The control plane: a loopback-only HTTP listener the CLI uses to drive the
- * daemon. Every route except `GET /health` requires the bearer token, compared
- * in constant time. This listener is STRUCTURALLY separate from the proxy and
- * is hard-wired to 127.0.0.1 — it must never be bindable off-loopback.
+ * The control plane: a loopback-only HTTP listener the CLI and TUI use to drive
+ * the daemon. Every route except `GET /health` requires the bearer token,
+ * compared in constant time. It is hard-wired to 127.0.0.1 — it must never be
+ * bindable off-loopback.
  */
 
 import type {
   HealthResponse,
+  InstanceStore,
+  InstanceUpsertRequest,
+  InstancesResponse,
   ISupervisor,
+  LaunchSpec,
   Model,
   ModelsResponse,
   PsResponse,
   StartRequest,
+  StatsResponse,
+  StatsSnapshot,
   StopRequest,
 } from "../types.ts";
-import { BunstashError, toBunstashError } from "../errors.ts";
+import { LlamactlError, toLlamactlError } from "../errors.ts";
 import { findFreePort } from "../net/ports.ts";
 import { constantTimeEqual } from "./runtime.ts";
+
+/** The slice of the resource sampler the control plane needs. */
+export interface StatsSource {
+  snapshot(): StatsSnapshot;
+}
 
 export interface ControlPlaneOptions {
   token: string;
   supervisor: ISupervisor;
+  /** Saved instance profiles (CRUD). */
+  instances: InstanceStore;
+  /** Source of the latest resource snapshot. */
+  sampler: StatsSource;
   /** Returns the current set of discovered models. */
   models: () => Model[];
   /** First control-plane port to try; scans upward if taken. */
@@ -48,7 +63,7 @@ function json(value: unknown, status = 200): Response {
 }
 
 function errorResponse(e: unknown): Response {
-  const err = toBunstashError(e);
+  const err = toLlamactlError(e);
   return json(err.toApiError(), err.httpStatus);
 }
 
@@ -58,6 +73,32 @@ function bearer(req: Request): string | null {
   if (!auth) return null;
   const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
   return m ? m[1]! : null;
+}
+
+/**
+ * Resolve a POST /start body into a concrete LaunchSpec. Accepts a saved
+ * instance id, an inline spec, or the legacy `{ model, ctx }` selector form.
+ */
+function resolveStartSpec(body: StartRequest, instances: InstanceStore): LaunchSpec {
+  if (body.instance !== undefined) {
+    const profile = instances.get(body.instance);
+    if (!profile) {
+      throw new LlamactlError("instance_not_found", `no saved instance "${body.instance}"`, {
+        detail: { instance: body.instance },
+      });
+    }
+    return profile.spec;
+  }
+  if (body.spec !== undefined) {
+    if (typeof body.spec.model !== "string" || body.spec.model.length === 0) {
+      throw new LlamactlError("bad_request", "spec.model is required");
+    }
+    return body.spec;
+  }
+  if (typeof body.model === "string" && body.model.length > 0) {
+    return { model: body.model, ctxSize: body.ctx };
+  }
+  throw new LlamactlError("bad_request", "provide one of: instance, spec, or model");
 }
 
 export async function startControlPlane(opts: ControlPlaneOptions): Promise<ControlPlaneHandle> {
@@ -84,7 +125,7 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
 
       // Everything else requires the bearer token (constant-time check).
       if (!authed(req)) {
-        return errorResponse(new BunstashError("unauthorized", "missing or invalid bearer token"));
+        return errorResponse(new LlamactlError("unauthorized", "missing or invalid bearer token"));
       }
 
       try {
@@ -98,19 +139,51 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
           return json(body);
         }
 
+        if (path === "/stats" && req.method === "GET") {
+          const body: StatsResponse = { stats: opts.sampler.snapshot() };
+          return json(body);
+        }
+
+        if (path === "/instances" && req.method === "GET") {
+          const body: InstancesResponse = { instances: opts.instances.list() };
+          return json(body);
+        }
+
+        if (path === "/instances" && req.method === "POST") {
+          const body = (await req.json()) as InstanceUpsertRequest;
+          if (!body || typeof body.spec !== "object" || body.spec === null) {
+            throw new LlamactlError("bad_request", "field 'spec' is required");
+          }
+          const created = await opts.instances.create({ name: body.name, spec: body.spec });
+          return json(created, 201);
+        }
+
+        // /instances/:id (PUT update, DELETE remove)
+        const instanceMatch = /^\/instances\/(.+)$/.exec(path);
+        if (instanceMatch) {
+          const id = decodeURIComponent(instanceMatch[1]!);
+          if (req.method === "PUT") {
+            const body = (await req.json()) as { name?: string; spec?: LaunchSpec };
+            const updated = await opts.instances.update(id, { name: body?.name, spec: body?.spec });
+            return json(updated);
+          }
+          if (req.method === "DELETE") {
+            await opts.instances.remove(id);
+            return json({ ok: true });
+          }
+        }
+
         if (path === "/start" && req.method === "POST") {
           const reqBody = (await req.json()) as StartRequest;
-          if (!reqBody || typeof reqBody.model !== "string" || reqBody.model.length === 0) {
-            throw new BunstashError("bad_request", "field 'model' is required");
-          }
-          const running = await opts.supervisor.start(reqBody.model, reqBody.ctx);
+          const spec = resolveStartSpec(reqBody ?? {}, opts.instances);
+          const running = await opts.supervisor.start(spec);
           return json(running);
         }
 
         if (path === "/stop" && req.method === "POST") {
           const reqBody = (await req.json()) as StopRequest;
           if (!reqBody || typeof reqBody.model !== "string" || reqBody.model.length === 0) {
-            throw new BunstashError("bad_request", "field 'model' is required");
+            throw new LlamactlError("bad_request", "field 'model' is required");
           }
           const stopped = await opts.supervisor.stop(reqBody.model);
           return json(stopped);
@@ -122,7 +195,7 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
           return json({ ok: true });
         }
 
-        return errorResponse(new BunstashError("not_found", `no such route: ${req.method} ${path}`));
+        return errorResponse(new LlamactlError("not_found", `no such route: ${req.method} ${path}`));
       } catch (e) {
         return errorResponse(e);
       }

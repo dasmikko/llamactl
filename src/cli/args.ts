@@ -25,6 +25,16 @@ const VALUE_OPTS = new Set([
   "llama-server",
   "config",
   "model-paths",
+  "ngl",
+  "gpu-layers",
+  "threads",
+  "batch-size",
+  "cache-type-k",
+  "cache-type-v",
+  "chat-template",
+  "instance",
+  "name",
+  "extra-args",
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {

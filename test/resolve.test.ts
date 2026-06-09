@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Model } from "../src/types.ts";
 import { createResolver, resolveModel } from "../src/discovery/models.ts";
-import { BunstashError, isBunstashError } from "../src/errors.ts";
+import { LlamactlError, isLlamactlError } from "../src/errors.ts";
 
 const models: Model[] = [
   {
@@ -13,6 +13,9 @@ const models: Model[] = [
     quant: "Q4_K_M",
     source: "huggingface",
     mtimeMs: 1,
+    arch: null,
+    contextLength: null,
+    kind: "text",
   },
   {
     id: "llama-3.1-8b-instruct-q8_0",
@@ -22,6 +25,9 @@ const models: Model[] = [
     quant: "Q8_0",
     source: "huggingface",
     mtimeMs: 2,
+    arch: null,
+    contextLength: null,
+    kind: "text",
   },
   {
     id: "mistral-7b-q4_k_m",
@@ -31,6 +37,9 @@ const models: Model[] = [
     quant: "Q4_K_M",
     source: "config",
     mtimeMs: 3,
+    arch: null,
+    contextLength: null,
+    kind: "text",
   },
 ];
 
@@ -67,12 +76,12 @@ describe("resolveModel", () => {
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
-    expect(err).toBeInstanceOf(BunstashError);
-    expect((err as BunstashError).code).toBe("ambiguous_model");
+    expect(isLlamactlError(err)).toBe(true);
+    expect(err).toBeInstanceOf(LlamactlError);
+    expect((err as LlamactlError).code).toBe("ambiguous_model");
     // Message should list candidate ids.
-    expect((err as BunstashError).message).toContain("llama-3.1-8b-instruct-q4_k_m");
-    expect((err as BunstashError).message).toContain("llama-3.1-8b-instruct-q8_0");
+    expect((err as LlamactlError).message).toContain("llama-3.1-8b-instruct-q4_k_m");
+    expect((err as LlamactlError).message).toContain("llama-3.1-8b-instruct-q8_0");
   });
 
   test("missing selector throws model_not_found", () => {
@@ -82,9 +91,9 @@ describe("resolveModel", () => {
     } catch (e) {
       err = e;
     }
-    expect(isBunstashError(err)).toBe(true);
-    expect(err).toBeInstanceOf(BunstashError);
-    expect((err as BunstashError).code).toBe("model_not_found");
+    expect(isLlamactlError(err)).toBe(true);
+    expect(err).toBeInstanceOf(LlamactlError);
+    expect((err as LlamactlError).code).toBe("model_not_found");
   });
 
   test("exact id wins over substring ambiguity", () => {
@@ -107,8 +116,8 @@ describe("createResolver", () => {
     expect(r.all().length).toBe(3);
   });
 
-  test("resolve throws BunstashError on miss", () => {
+  test("resolve throws LlamactlError on miss", () => {
     const r = createResolver(models);
-    expect(() => r.resolve("nope-nope")).toThrow(BunstashError);
+    expect(() => r.resolve("nope-nope")).toThrow(LlamactlError);
   });
 });

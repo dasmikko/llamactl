@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * A tiny fake `llama-server` used by tests. It mimics the subset of the
- * llama.cpp HTTP surface that bunstash relies on:
+ * llama.cpp HTTP surface that llamactl relies on:
  *
  *   GET  /health                -> 503 {status:"loading model"} until "ready",
  *                                  then 200 {status:"ok"}
@@ -68,7 +68,7 @@ export function startFakeServer(opts: FakeServerOptions = {}): FakeServer {
       if (path === "/v1/models") {
         return Response.json({
           object: "list",
-          data: [{ id: model, object: "model", owned_by: "bunstash-fake" }],
+          data: [{ id: model, object: "model", owned_by: "llamactl-fake" }],
         });
       }
 

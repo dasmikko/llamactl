@@ -1,12 +1,12 @@
 /**
  * Typed, actionable errors. Every failure that crosses a module boundary or
- * reaches the user is a BunstashError with a stable ErrorCode, so the CLI can
+ * reaches the user is a LlamactlError with a stable ErrorCode, so the CLI can
  * render it and the control plane / proxy can serialize it consistently.
  */
 
 import type { ApiError, ErrorCode } from "./types.ts";
 
-export class BunstashError extends Error {
+export class LlamactlError extends Error {
   readonly code: ErrorCode;
   readonly detail?: unknown;
   /** Suggested HTTP status when surfaced over the control plane / proxy. */
@@ -14,7 +14,7 @@ export class BunstashError extends Error {
 
   constructor(code: ErrorCode, message: string, opts?: { detail?: unknown; httpStatus?: number }) {
     super(message);
-    this.name = "BunstashError";
+    this.name = "LlamactlError";
     this.code = code;
     this.detail = opts?.detail;
     this.httpStatus = opts?.httpStatus ?? defaultStatus(code);
@@ -59,13 +59,13 @@ function defaultStatus(code: ErrorCode): number {
 }
 
 /** Narrowing helper. */
-export function isBunstashError(e: unknown): e is BunstashError {
-  return e instanceof BunstashError;
+export function isLlamactlError(e: unknown): e is LlamactlError {
+  return e instanceof LlamactlError;
 }
 
-/** Coerce any thrown value into a BunstashError (defaults to "internal"). */
-export function toBunstashError(e: unknown): BunstashError {
-  if (isBunstashError(e)) return e;
-  if (e instanceof Error) return new BunstashError("internal", e.message);
-  return new BunstashError("internal", String(e));
+/** Coerce any thrown value into a LlamactlError (defaults to "internal"). */
+export function toLlamactlError(e: unknown): LlamactlError {
+  if (isLlamactlError(e)) return e;
+  if (e instanceof Error) return new LlamactlError("internal", e.message);
+  return new LlamactlError("internal", String(e));
 }

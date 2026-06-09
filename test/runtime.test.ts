@@ -21,7 +21,7 @@ let prevXdgState: string | undefined;
 
 beforeAll(async () => {
   prevXdgState = process.env.XDG_STATE_HOME;
-  tmpDir = await mkdtemp(join(tmpdir(), "bunstash-runtime-"));
+  tmpDir = await mkdtemp(join(tmpdir(), "llamactl-runtime-"));
   process.env.XDG_STATE_HOME = tmpDir;
 });
 
@@ -34,7 +34,6 @@ afterAll(async () => {
 function sampleRuntime(pid: number): Runtime {
   return {
     controlUrl: "http://127.0.0.1:48134",
-    proxyUrl: "http://127.0.0.1:11435",
     token: generateToken(),
     pid,
     startedAt: Date.now(),

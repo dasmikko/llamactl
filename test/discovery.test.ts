@@ -10,7 +10,7 @@ let tmp = "";
 
 async function setup(): Promise<string> {
   if (tmp) return tmp;
-  tmp = await mkdtemp(join(tmpdir(), "bunstash-discovery-"));
+  tmp = await mkdtemp(join(tmpdir(), "llamactl-discovery-"));
   // A nested directory to exercise recursion.
   const nested = join(tmp, "vendor", "models");
   await mkdir(nested, { recursive: true });
@@ -115,7 +115,7 @@ describe("discoverModels", () => {
 
   test("missing extra paths are skipped silently", async () => {
     const models = await discoverModels({
-      extraPaths: [join(tmpdir(), "bunstash-does-not-exist-zzz")],
+      extraPaths: [join(tmpdir(), "llamactl-does-not-exist-zzz")],
     });
     expect(Array.isArray(models)).toBe(true);
   });

@@ -1,19 +1,30 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import type { ISupervisor, Model, RunningModel } from "../src/types.ts";
-import { BunstashError } from "../src/errors.ts";
-import { startControlPlane, type ControlPlaneHandle } from "../src/daemon/controlplane.ts";
+import type {
+  InstanceStore,
+  ISupervisor,
+  Model,
+  RunningModel,
+  StatsSnapshot,
+} from "../src/types.ts";
+import { LlamactlError } from "../src/errors.ts";
+import {
+  startControlPlane,
+  type ControlPlaneHandle,
+  type StatsSource,
+} from "../src/daemon/controlplane.ts";
 import { findFreePort, isPortFree } from "../src/net/ports.ts";
 import { createServer, type Server } from "node:net";
 
 const TOKEN = "a".repeat(64);
 
 function model(id: string): Model {
-  return { id, name: id, path: `/models/${id}.gguf`, sizeBytes: 1, quant: null, source: "config", mtimeMs: 0 };
+  return { id, name: id, path: `/models/${id}.gguf`, sizeBytes: 1, quant: null, source: "config", mtimeMs: 0, arch: null, contextLength: null, kind: "text" };
 }
 function running(id: string): RunningModel {
   return {
     modelId: id, name: id, path: `/models/${id}.gguf`, pid: 1234, port: 18000,
     status: "ready", startedAt: 0, restarts: 0, logPath: "/tmp/x.log",
+    spec: { model: id },
   };
 }
 
@@ -26,20 +37,47 @@ function mockSupervisor(): ISupervisor & { started: string[]; stopped: string[] 
     stopped,
     list: () => [running("alpha")],
     get: () => undefined,
-    start: async (sel) => {
-      started.push(sel);
-      if (sel === "ghost") throw new BunstashError("model_not_found", "no such model: ghost");
-      return running(sel);
+    start: async (spec) => {
+      started.push(spec.model);
+      if (spec.model === "ghost") throw new LlamactlError("model_not_found", "no such model: ghost");
+      return running(spec.model);
     },
     stop: async (sel) => {
       stopped.push(sel);
-      if (sel === "idle") throw new BunstashError("not_running", "not running: idle");
+      if (sel === "idle") throw new LlamactlError("not_running", "not running: idle");
       return running(sel);
     },
-    ensureReady: async (sel) => running(sel),
+    ensureReady: async (spec) => running(spec.model),
     shutdownAll: async () => {},
   };
 }
+
+/** Empty in-memory instance store for the control-plane tests. */
+function mockInstances(): InstanceStore {
+  const map = new Map<string, never>();
+  return {
+    list: () => [],
+    get: () => undefined,
+    create: async () => {
+      throw new LlamactlError("internal", "not used in this test");
+    },
+    update: async () => {
+      throw new LlamactlError("internal", "not used in this test");
+    },
+    remove: async () => {
+      void map;
+    },
+  };
+}
+
+const EMPTY_SNAPSHOT: StatsSnapshot = {
+  ts: 0,
+  system: { cpuPct: 0, memUsed: 0, memTotal: 0, tempC: null },
+  gpus: [],
+  instances: [],
+  gpuAvailable: false,
+};
+const mockSampler: StatsSource = { snapshot: () => EMPTY_SNAPSHOT };
 
 let handle: ControlPlaneHandle;
 let sup: ReturnType<typeof mockSupervisor>;
@@ -50,6 +88,8 @@ beforeAll(async () => {
   handle = await startControlPlane({
     token: TOKEN,
     supervisor: sup,
+    instances: mockInstances(),
+    sampler: mockSampler,
     models: () => [model("alpha"), model("beta")],
     startPort: await findFreePort(49200),
     pid: process.pid,
@@ -137,6 +177,8 @@ test("control plane scans upward when its preferred port is taken", async () => 
     const h = await startControlPlane({
       token: TOKEN,
       supervisor: mockSupervisor(),
+      instances: mockInstances(),
+      sampler: mockSampler,
       models: () => [],
       startPort: taken,
       pid: process.pid,

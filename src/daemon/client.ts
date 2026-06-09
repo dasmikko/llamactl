@@ -6,7 +6,7 @@
 
 import type { Config, Runtime } from "../types.ts";
 import type { ApiError } from "../types.ts";
-import { BunstashError } from "../errors.ts";
+import { LlamactlError } from "../errors.ts";
 import { readLiveRuntime, isProcessAlive } from "./runtime.ts";
 
 /** Build the argv that re-launches this same program with extra args. */
@@ -27,7 +27,7 @@ function spawnDaemon(): void {
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
-    env: { ...process.env, BUNSTASH_DAEMON_CHILD: "1" },
+    env: { ...process.env, LLAMACTL_DAEMON_CHILD: "1" },
   });
   // Let the parent CLI exit independently of the daemon.
   child.unref();
@@ -66,7 +66,7 @@ export function clientFor(runtime: Runtime): DaemonConnection {
           ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         });
       } catch (e) {
-        throw new BunstashError(
+        throw new LlamactlError(
           "daemon_unreachable",
           `could not reach the daemon at ${runtime.controlUrl}: ${(e as Error).message}`,
         );
@@ -77,15 +77,15 @@ export function clientFor(runtime: Runtime): DaemonConnection {
         try {
           const parsed = JSON.parse(text) as ApiError;
           if (parsed?.error?.code) {
-            throw new BunstashError(parsed.error.code, parsed.error.message, {
+            throw new LlamactlError(parsed.error.code, parsed.error.message, {
               detail: parsed.error.detail,
               httpStatus: res.status,
             });
           }
         } catch (e) {
-          if (e instanceof BunstashError) throw e;
+          if (e instanceof LlamactlError) throw e;
         }
-        throw new BunstashError("internal", `daemon returned HTTP ${res.status}: ${text}`);
+        throw new LlamactlError("internal", `daemon returned HTTP ${res.status}: ${text}`);
       }
       return (text ? JSON.parse(text) : undefined) as T;
     },
@@ -104,14 +104,14 @@ export async function connectDaemon(opts: {
   if (existing) return clientFor(existing);
 
   if (opts.autospawn === false) {
-    throw new BunstashError("daemon_unreachable", "daemon is not running");
+    throw new LlamactlError("daemon_unreachable", "daemon is not running");
   }
 
   // Fork a detached daemon and wait once for it to publish runtime.json.
   spawnDaemon();
   const rt = await awaitRuntime(5000);
   if (!rt) {
-    throw new BunstashError(
+    throw new LlamactlError(
       "daemon_unreachable",
       "started the daemon but it did not become ready within 5s; check logs",
     );

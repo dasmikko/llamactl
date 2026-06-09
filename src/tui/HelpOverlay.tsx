@@ -1,0 +1,53 @@
+/**
+ * Modal listing the keybindings. Esc (or ?) closes it; the app gates this
+ * component behind mode === "help", so it only needs to render the list.
+ */
+
+import React from "react";
+import { Box, Text } from "ink";
+
+interface Binding {
+  keys: string;
+  desc: string;
+}
+
+const BINDINGS: Binding[] = [
+  { keys: "j / ↓", desc: "move selection down" },
+  { keys: "k / ↑", desc: "move selection up" },
+  { keys: "g / G", desc: "jump to top / bottom" },
+  { keys: "Enter", desc: "start (or stop if running) the selected row" },
+  { keys: "e", desc: "edit the selected row's launch flags" },
+  { keys: "n", desc: "new instance profile for the selected model" },
+  { keys: "d", desc: "delete the selected instance (press again to confirm)" },
+  { keys: "l", desc: "view logs of a running row" },
+  { keys: "/", desc: "filter the list" },
+  { keys: "?", desc: "toggle this help" },
+  { keys: "Esc", desc: "close a modal / clear filter" },
+  { keys: "q / Ctrl-C", desc: "quit (the daemon keeps running)" },
+];
+
+export function HelpOverlay(): React.ReactElement {
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="green"
+      paddingX={1}
+    >
+      <Text bold>Keybindings</Text>
+      <Box flexDirection="column" marginTop={1}>
+        {BINDINGS.map((b) => (
+          <Box key={b.keys}>
+            <Box width={14}>
+              <Text color="cyan">{b.keys}</Text>
+            </Box>
+            <Text>{b.desc}</Text>
+          </Box>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>Esc or ? to close</Text>
+      </Box>
+    </Box>
+  );
+}

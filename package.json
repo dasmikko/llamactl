@@ -1,21 +1,27 @@
 {
-  "name": "bunstash",
+  "name": "llamactl",
   "version": "0.1.0",
-  "description": "A fast, terminal-native launcher for local LLMs running via llama-server.",
+  "description": "A terminal UI for managing local llama.cpp (llama-server) instances.",
   "type": "module",
   "module": "src/index.ts",
   "bin": {
-    "bunstash": "src/index.ts"
+    "llamactl": "src/index.ts"
   },
   "scripts": {
     "start": "bun run src/index.ts",
     "test": "bun test",
-    "build": "bun build --compile --outfile bunstash src/index.ts",
+    "build": "bun build --compile --outfile llamactl src/index.ts",
     "typecheck": "bunx tsc --noEmit"
   },
   "private": true,
+  "dependencies": {
+    "ink": "^5.1.0",
+    "react": "^18.3.1",
+    "react-devtools-core": "^7.0.1"
+  },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/react": "^18.3.12",
     "typescript": "^5"
   }
 }
