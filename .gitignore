@@ -1,4 +1,5 @@
 node_modules/
 # Compiled single-file executable
-/bunstash
+/llamactl
+/llamactl-bin
 *.log
