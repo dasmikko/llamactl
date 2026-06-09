@@ -37,7 +37,7 @@ function ResourceHeaderImpl({
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Box>
-        <Text bold>llamactl</Text>
+        <Text bold>🦙 llamactl</Text>
         <Text>  </Text>
         {connected ? (
           <Text color="green">● connected</Text>
