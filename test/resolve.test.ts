@@ -1,8 +1,28 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Model } from "../src/types.ts";
-import { createResolver, resolveModel } from "../src/discovery/models.ts";
+import { createResolver, resolveModel, parseRepo } from "../src/discovery/models.ts";
 import { LlamactlError, isLlamactlError } from "../src/errors.ts";
+
+describe("parseRepo", () => {
+  test("decodes the repo from an HF hub cache path", () => {
+    const p =
+      "/home/u/.cache/huggingface/hub/models--unsloth--gemma-4-E2B-it-GGUF/snapshots/abc/gemma.gguf";
+    expect(parseRepo(p)).toBe("unsloth/gemma-4-E2B-it-GGUF");
+  });
+  test("handles an org containing a dash", () => {
+    const p = "/x/hub/models--lmstudio-community--Qwen3.5-9B-GGUF/snapshots/a/m.gguf";
+    expect(parseRepo(p)).toBe("lmstudio-community/Qwen3.5-9B-GGUF");
+  });
+  test("uses the org/name layout (LM Studio) when not an HF cache path", () => {
+    expect(parseRepo("/home/u/.lmstudio/models/unsloth/Qwen3.5-9B-GGUF/m.gguf")).toBe(
+      "unsloth/Qwen3.5-9B-GGUF",
+    );
+  });
+  test("returns null when no repo is apparent", () => {
+    expect(parseRepo("/srv/m.gguf")).toBeNull();
+  });
+});
 
 const models: Model[] = [
   {

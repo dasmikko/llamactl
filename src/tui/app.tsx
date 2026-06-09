@@ -11,6 +11,7 @@ import { render, Box, Text, useApp, useInput, useStdout } from "ink";
 import type { Config, LaunchSpec, StartRequest } from "../types.ts";
 import { useDaemon } from "./useDaemon.ts";
 import { buildRows, filterRows, defaultSpecForRow, type Row } from "./rows.ts";
+import { parseRepo } from "../discovery/models.ts";
 import { ResourceHeader } from "./ResourceHeader.tsx";
 import { Table } from "./Table.tsx";
 import { FlagEditor, type FlagEditorResult } from "./FlagEditor.tsx";
@@ -423,6 +424,13 @@ function InfoView({
   onClose: () => void;
 }): React.ReactElement {
   useInput((input, key) => {
+    if (input === "h") {
+      // Open the model's Hugging Face page. The repo is decoded from the file
+      // path (the GGUF metadata is unreliable for this).
+      const repo = row.model ? parseRepo(row.model.path) : null;
+      if (repo) openInBrowser(`https://huggingface.co/${repo}`);
+      return;
+    }
     if (key.escape || input === "i" || input === "q") onClose();
   });
   return <ModelInfo row={row} now={now} />;

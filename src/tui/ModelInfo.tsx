@@ -9,6 +9,7 @@ import { Box, Text } from "ink";
 import type { LaunchSpec } from "../types.ts";
 import type { Row } from "./rows.ts";
 import { humanBytes, humanUptime, pct } from "./format.ts";
+import { parseRepo } from "../discovery/models.ts";
 
 export interface ModelInfoProps {
   row: Row;
@@ -59,12 +60,16 @@ function Field({ label, value }: { label: string; value: string }): React.ReactE
 export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
   const { model, instance, running, stats } = row;
   const spec = running?.spec ?? instance?.spec;
+  const repo = model ? parseRepo(model.path) : null;
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
       <Text bold color="cyan">
         {row.name}
       </Text>
+      {repo ? (
+        <Text dimColor>{`huggingface.co/${repo}  (press h to open)`}</Text>
+      ) : null}
 
       <Box marginTop={1} flexDirection="column">
         <Field label="Model id" value={model?.id ?? row.modelId} />
@@ -112,7 +117,7 @@ export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>Esc or i to close</Text>
+        <Text dimColor>{repo ? "Esc/i close · h HuggingFace" : "Esc or i to close"}</Text>
       </Box>
     </Box>
   );

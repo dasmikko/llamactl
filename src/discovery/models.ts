@@ -80,6 +80,31 @@ export function parseOrg(path: string): string | null {
   return null;
 }
 
+/**
+ * Best-effort Hugging Face repo id ("org/name") from the file path — what you'd
+ * use to build a hf.co URL. The HF hub cache (`…/models--<org>--<name>/…`) is
+ * exact; the `<root>/<org>/<name>/<file>` layout (LM Studio, etc.) is a
+ * heuristic. GGUF metadata is NOT used: it's frequently absent or points at the
+ * base model rather than the GGUF repo. Returns null when no repo is apparent.
+ */
+export function parseRepo(path: string): string | null {
+  const hub = /models--([^/]+)/.exec(path);
+  if (hub && hub[1]) {
+    // huggingface_hub encodes "org/name" as "org--name"; the first "--" is the
+    // original "/" (orgs never contain "--").
+    const sep = hub[1].indexOf("--");
+    if (sep > 0) return `${hub[1].slice(0, sep)}/${hub[1].slice(sep + 2)}`;
+  }
+  const parts = path.split("/").filter((p) => p.length > 0);
+  if (parts.length >= 3) {
+    const org = parts[parts.length - 3];
+    const name = parts[parts.length - 2];
+    const skip = new Set(["models", "model", "snapshots", "blobs", "hub", "gguf"]);
+    if (org && name && !skip.has(org.toLowerCase())) return `${org}/${name}`;
+  }
+  return null;
+}
+
 /** Strip the `.gguf` extension (case-insensitive). */
 function stripGguf(filename: string): string {
   return filename.replace(/\.gguf$/i, "");
