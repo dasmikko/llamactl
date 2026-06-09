@@ -28,6 +28,7 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     arch: null,
     contextLength: null,
     kind: "text",
+    org: null,
     ...overrides,
   };
 }
@@ -51,6 +52,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     defaultCtx: 2048,
     defaultGpuLayers: 99,
     llamaServerArgs: [],
+    downloadDir: "/tmp/llamactl-test-dl",
+    hfToken: null,
     ...overrides,
   };
 }

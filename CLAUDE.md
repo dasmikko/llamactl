@@ -49,6 +49,7 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
 | Discovery (GGUF scan + metadata) | `src/discovery/models.ts`, `src/discovery/gguf.ts` |
 | Launch specs (argv mapping, profiles) | `src/instances/spec.ts`, `src/instances/store.ts` |
 | Supervisor (spawn/health/restart) | `src/supervisor/process.ts` |
+| Hugging Face (search + downloads) | `src/hf/client.ts`, `src/hf/download.ts` |
 | Daemon + control plane + client | `src/daemon/*` |
 | Monitoring | `src/monitor/proc.ts`, `nvidia.ts`, `sampler.ts` |
 | Headless CLI | `src/index.ts`, `src/cli/*` |
@@ -73,8 +74,15 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
 - **Readiness:** the supervisor proactively polls each child's `/health` in the
   background (`beginReadinessProbe`) and flips `starting → ready`. Nothing else
   drives that transition (the proxy that used to is gone).
+- **Hugging Face:** the daemon owns a `DownloadManager` (`src/hf/download.ts`,
+  background streaming downloads with progress/cancel/shard-expansion) and an HF
+  API client (`src/hf/client.ts`). Control plane: `/hf/search`, `/hf/files`,
+  `/pull`, `/downloads`, `/downloads/:id/cancel`. Files land in `config.downloadDir`
+  (a scanned + watched root via `modelScanPaths`), so a finished download appears
+  in discovery automatically. Token resolves from `config.hfToken` else the HF CLI
+  cache. TUI: `p` opens `HfBrowser`; progress shows in `Downloads.tsx`.
 - **Stats:** the daemon samples on an interval and serves a cached `StatsSnapshot`
-  at `GET /stats`; the TUI polls it. CPU% is delta-based (first tick reads 0).
+  at `GET /stats`; the TUI polls it (alongside `/downloads`). CPU% is delta-based (first tick reads 0).
   All cross-sample state lives in `src/monitor/sampler.ts`; `proc.ts`/`nvidia.ts`
   are stateless and expose pure parse helpers for tests.
 - **TUI selection** is tracked by `modelId`, not row index, so the cursor follows

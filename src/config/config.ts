@@ -6,7 +6,7 @@
  */
 
 import type { Config } from "../types.ts";
-import { configPath } from "./paths.ts";
+import { configPath, downloadDir as defaultDownloadDir } from "./paths.ts";
 
 export const CONTROL_PORT_DEFAULT = 48134;
 /** Offload all layers to the GPU by default; override per-spec for CPU/partial. */
@@ -21,6 +21,8 @@ export function defaultConfig(): Config {
     defaultCtx: 4096,
     defaultGpuLayers: DEFAULT_GPU_LAYERS,
     llamaServerArgs: [],
+    downloadDir: defaultDownloadDir(),
+    hfToken: null,
   };
 }
 
@@ -32,6 +34,8 @@ export type PartialConfig = {
   defaultCtx?: number;
   defaultGpuLayers?: number;
   llamaServerArgs?: string[];
+  downloadDir?: string;
+  hfToken?: string | null;
 };
 
 /** Deep-merge a single override layer onto a base config. */
@@ -44,7 +48,14 @@ export function mergeConfig(base: Config, over: PartialConfig): Config {
     defaultCtx: over.defaultCtx ?? base.defaultCtx,
     defaultGpuLayers: over.defaultGpuLayers ?? base.defaultGpuLayers,
     llamaServerArgs: over.llamaServerArgs ?? base.llamaServerArgs,
+    downloadDir: over.downloadDir ?? base.downloadDir,
+    hfToken: over.hfToken !== undefined ? over.hfToken : base.hfToken,
   };
+}
+
+/** All directories scanned for `.gguf` models, including the download dir. */
+export function modelScanPaths(config: Config): string[] {
+  return [...config.modelPaths, config.downloadDir];
 }
 
 function envInt(v: string | undefined): number | undefined {
@@ -66,6 +77,10 @@ export function configFromEnv(env: Record<string, string | undefined>): PartialC
   if (ctx !== undefined) out.defaultCtx = ctx;
   const ngl = envInt(env.LLAMACTL_GPU_LAYERS);
   if (ngl !== undefined) out.defaultGpuLayers = ngl;
+  const dl = env.LLAMACTL_DOWNLOAD_DIR;
+  if (dl !== undefined && dl.length > 0) out.downloadDir = dl;
+  const tok = env.LLAMACTL_HF_TOKEN;
+  if (tok !== undefined && tok.length > 0) out.hfToken = tok;
   return out;
 }
 

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type {
+  IDownloadManager,
   InstanceStore,
   ISupervisor,
   Model,
@@ -18,7 +19,7 @@ import { createServer, type Server } from "node:net";
 const TOKEN = "a".repeat(64);
 
 function model(id: string): Model {
-  return { id, name: id, path: `/models/${id}.gguf`, sizeBytes: 1, quant: null, source: "config", mtimeMs: 0, arch: null, contextLength: null, kind: "text" };
+  return { id, name: id, path: `/models/${id}.gguf`, sizeBytes: 1, quant: null, source: "config", mtimeMs: 0, arch: null, contextLength: null, kind: "text", org: null };
 }
 function running(id: string): RunningModel {
   return {
@@ -79,6 +80,42 @@ const EMPTY_SNAPSHOT: StatsSnapshot = {
 };
 const mockSampler: StatsSource = { snapshot: () => EMPTY_SNAPSHOT };
 
+const pulled: { repo: string; file: string }[] = [];
+const mockDownloads: IDownloadManager = {
+  list: () => [
+    {
+      id: "r:f",
+      repo: "r",
+      file: "f",
+      destPath: "/x",
+      receivedBytes: 5,
+      totalBytes: 10,
+      status: "downloading",
+      error: null,
+      startedAt: 0,
+    },
+  ],
+  get: () => undefined,
+  start: (repo, file) => {
+    pulled.push({ repo, file });
+    return {
+      id: `${repo}:${file}`,
+      repo,
+      file,
+      destPath: `/d/${file}`,
+      receivedBytes: 0,
+      totalBytes: null,
+      status: "downloading",
+      error: null,
+      startedAt: 0,
+    };
+  },
+  cancel: (id) => {
+    if (id !== "r:f") throw new LlamactlError("download_not_found", "no such download");
+  },
+};
+const getHfToken = async (): Promise<string | null> => null;
+
 let handle: ControlPlaneHandle;
 let sup: ReturnType<typeof mockSupervisor>;
 const base = () => handle.url;
@@ -90,6 +127,8 @@ beforeAll(async () => {
     supervisor: sup,
     instances: mockInstances(),
     sampler: mockSampler,
+    downloads: mockDownloads,
+    getHfToken,
     models: () => [model("alpha"), model("beta")],
     startPort: await findFreePort(49200),
     pid: process.pid,
@@ -164,6 +203,41 @@ test("supervisor's typed error surfaces with its status code", async () => {
   expect(body.error.code).toBe("model_not_found");
 });
 
+test("GET /downloads returns the manager's list", async () => {
+  const res = await fetch(base() + "/downloads", { headers: { authorization: `Bearer ${TOKEN}` } });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { downloads: { id: string; status: string }[] };
+  expect(body.downloads[0]?.id).toBe("r:f");
+  expect(body.downloads[0]?.status).toBe("downloading");
+});
+
+test("POST /pull (non-sharded) forwards to the download manager", async () => {
+  const res = await fetch(base() + "/pull", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ repo: "org/repo", file: "model-Q4_K_M.gguf" }),
+  });
+  expect(res.status).toBe(200);
+  expect(pulled).toContainEqual({ repo: "org/repo", file: "model-Q4_K_M.gguf" });
+});
+
+test("POST /pull without repo/file => 400", async () => {
+  const res = await fetch(base() + "/pull", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ repo: "org/repo" }),
+  });
+  expect(res.status).toBe(400);
+});
+
+test("POST /downloads/:id/cancel cancels a known id", async () => {
+  const res = await fetch(base() + "/downloads/r%3Af/cancel", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(200);
+});
+
 test("unknown route => 404 not_found", async () => {
   const res = await fetch(base() + "/nope", { headers: { authorization: `Bearer ${TOKEN}` } });
   expect(res.status).toBe(404);
@@ -179,6 +253,8 @@ test("control plane scans upward when its preferred port is taken", async () => 
       supervisor: mockSupervisor(),
       instances: mockInstances(),
       sampler: mockSampler,
+    downloads: mockDownloads,
+    getHfToken,
       models: () => [],
       startPort: taken,
       pid: process.pid,

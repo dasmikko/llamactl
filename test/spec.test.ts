@@ -11,6 +11,8 @@ function cfg(overrides: Partial<Config> = {}): Config {
     defaultCtx: 4096,
     defaultGpuLayers: 99,
     llamaServerArgs: [],
+    downloadDir: "/tmp/llamactl-test-dl",
+    hfToken: null,
     ...overrides,
   };
 }

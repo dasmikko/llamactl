@@ -9,8 +9,8 @@ llamactl discovers the GGUF models you already have cached, lets you set and sav
 
 - **TUI** — a full-screen view with live CPU / RAM / GPU / VRAM gauges (and
   temperatures), an **Active instances** list above a **Models** catalog, an
-  interactive flag editor, and a log tail. Start/stop, edit, and inspect without
-  leaving the terminal.
+  interactive flag editor, a log tail, and **Hugging Face search + download**.
+  Start/stop, edit, fetch, and inspect without leaving the terminal.
 - **Daemon (supervisor)** — a long-running background process that owns the child
   `llama-server` processes, a loopback control plane, and the resource sampler.
 - **Headless CLI** — every action is also scriptable (`llamactl start`, `ps`,
@@ -69,6 +69,7 @@ A model moves between the two lists as you start/stop it, and the cursor follows
 | `n` | Create a new saved instance profile |
 | `d` | Delete the selected saved profile (confirm with `d`/`y`) |
 | `l` | Tail the running instance's log |
+| `p` | Pull a model from Hugging Face (search → browse → download) |
 | `/` | Filter the list |
 | `?` | Help |
 | `q` | Quit (the daemon and instances keep running) |
@@ -95,6 +96,9 @@ fields type directly, and choosers use `←/→`:
 | `llamactl stop <model>` | Stop a running instance |
 | `llamactl ps` | Show running instances (port, pid, uptime, restarts) |
 | `llamactl instance ls\|add\|rm\|edit` | Manage saved launch profiles |
+| `llamactl search <query>` | Search Hugging Face for GGUF repos |
+| `llamactl pull <repo>[:quant]` | Download a model (e.g. `unsloth/Qwen3-0.6B-GGUF:Q4_K_M`) |
+| `llamactl downloads [cancel <id>]` | List or cancel downloads |
 | `llamactl daemon start\|stop` | Start/stop the background supervisor |
 
 Launch flags (for `start` and `instance add/edit`):
@@ -116,6 +120,26 @@ Launch flags (for `start` and `instance add/edit`):
 
 Pass `--json` to any command for a single machine-readable document on stdout and
 nothing else. Errors are a typed envelope: `{ "error": { "code": "...", "message": "..." } }`.
+
+## Fetching models from Hugging Face
+
+Search and download GGUF models without leaving llamactl. In the TUI press `p`
+to search, browse matching repos, pick a quant from the file list, and download;
+progress shows in a **Downloads** section and the model appears in the catalog as
+soon as it finishes. From the CLI:
+
+```sh
+llamactl search qwen3 0.6b                       # find repos
+llamactl pull unsloth/Qwen3-0.6B-GGUF:Q4_K_M     # download a specific quant
+llamactl downloads                               # watch progress
+llamactl downloads cancel <id>                   # cancel one
+```
+
+Downloads land in `$XDG_CACHE_HOME/llamactl/models/<repo>/<file>` (configurable
+via `downloadDir`), which is scanned automatically. Sharded models pull all their
+shards. **Gated/private repos** work when a token is available: set `hfToken` /
+`LLAMACTL_HF_TOKEN`, or just log in once with `huggingface-cli login` (llamactl
+reuses `~/.cache/huggingface/token`).
 
 ## Configuration
 
@@ -144,6 +168,8 @@ The config file is JSON at `$XDG_CONFIG_HOME/llamactl/config.json`
 | Default context size | `LLAMACTL_CTX` | `--ctx` | `4096` |
 | Default GPU layers | `LLAMACTL_GPU_LAYERS` | `--ngl` | `99` (offload all) |
 | `llama-server` path | `LLAMACTL_LLAMA_SERVER` | `--llama-server` | from `PATH` |
+| Download dir | `LLAMACTL_DOWNLOAD_DIR` | — | `$XDG_CACHE_HOME/llamactl/models` |
+| Hugging Face token | `LLAMACTL_HF_TOKEN` | — | `~/.cache/huggingface/token` |
 
 By default llamactl offloads **all** layers to the GPU (`--gpu-layers 99`). For a
 model too large to fit in VRAM, lower it per launch (`--ngl 20`) or in a saved

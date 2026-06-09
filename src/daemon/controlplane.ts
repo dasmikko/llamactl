@@ -6,7 +6,12 @@
  */
 
 import type {
+  Download,
+  DownloadsResponse,
   HealthResponse,
+  HfFilesResponse,
+  HfSearchResponse,
+  IDownloadManager,
   InstanceStore,
   InstanceUpsertRequest,
   InstancesResponse,
@@ -15,6 +20,7 @@ import type {
   Model,
   ModelsResponse,
   PsResponse,
+  PullRequest,
   StartRequest,
   StatsResponse,
   StatsSnapshot,
@@ -22,6 +28,7 @@ import type {
 } from "../types.ts";
 import { LlamactlError, toLlamactlError } from "../errors.ts";
 import { findFreePort } from "../net/ports.ts";
+import { searchModels, listGgufFiles } from "../hf/client.ts";
 import { constantTimeEqual } from "./runtime.ts";
 
 /** The slice of the resource sampler the control plane needs. */
@@ -36,6 +43,10 @@ export interface ControlPlaneOptions {
   instances: InstanceStore;
   /** Source of the latest resource snapshot. */
   sampler: StatsSource;
+  /** Background Hugging Face downloads. */
+  downloads: IDownloadManager;
+  /** Resolve the Hugging Face token (config or HF cache) for API calls. */
+  getHfToken: () => Promise<string | null>;
   /** Returns the current set of discovered models. */
   models: () => Model[];
   /** First control-plane port to try; scans upward if taken. */
@@ -101,6 +112,24 @@ function resolveStartSpec(body: StartRequest, instances: InstanceStore): LaunchS
   throw new LlamactlError("bad_request", "provide one of: instance, spec, or model");
 }
 
+const SHARD_RE = /^(.*)-(\d{5})-of-(\d{5})\.gguf$/i;
+
+/**
+ * Given a chosen file and the repo's full GGUF file list, return every file
+ * that must be downloaded together: the whole shard group for a sharded model,
+ * otherwise just the single file.
+ */
+function shardGroup(file: string, allFiles: string[]): string[] {
+  const m = SHARD_RE.exec(file);
+  if (!m) return [file];
+  const [, prefix, , total] = m;
+  const group = allFiles.filter((f) => {
+    const mm = SHARD_RE.exec(f);
+    return mm && mm[1] === prefix && mm[3] === total;
+  });
+  return group.length > 0 ? group : [file];
+}
+
 export async function startControlPlane(opts: ControlPlaneOptions): Promise<ControlPlaneHandle> {
   // Always loopback — the control plane is never exposed off-host by design.
   const port = await findFreePort(opts.startPort, LOOPBACK);
@@ -142,6 +171,54 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
         if (path === "/stats" && req.method === "GET") {
           const body: StatsResponse = { stats: opts.sampler.snapshot() };
           return json(body);
+        }
+
+        if (path === "/hf/search" && req.method === "GET") {
+          const q = url.searchParams.get("q") ?? "";
+          if (q.trim().length === 0) throw new LlamactlError("bad_request", "query 'q' is required");
+          const token = await opts.getHfToken();
+          const body: HfSearchResponse = { repos: await searchModels(q, { token }) };
+          return json(body);
+        }
+
+        if (path === "/hf/files" && req.method === "GET") {
+          const repo = url.searchParams.get("repo") ?? "";
+          if (repo.trim().length === 0) throw new LlamactlError("bad_request", "query 'repo' is required");
+          const token = await opts.getHfToken();
+          const body: HfFilesResponse = { files: await listGgufFiles(repo, { token }) };
+          return json(body);
+        }
+
+        if (path === "/downloads" && req.method === "GET") {
+          const body: DownloadsResponse = { downloads: opts.downloads.list() };
+          return json(body);
+        }
+
+        if (path === "/pull" && req.method === "POST") {
+          const reqBody = (await req.json()) as PullRequest;
+          if (!reqBody || typeof reqBody.repo !== "string" || typeof reqBody.file !== "string") {
+            throw new LlamactlError("bad_request", "fields 'repo' and 'file' are required");
+          }
+          // Expand a sharded model to its whole group so it's usable once done.
+          let files = [reqBody.file];
+          if (SHARD_RE.test(reqBody.file)) {
+            const token = await opts.getHfToken();
+            const all = await listGgufFiles(reqBody.repo, { token, revision: reqBody.revision });
+            files = shardGroup(reqBody.file, all.map((f) => f.rfilename));
+          }
+          const started: Download[] = files.map((f) =>
+            opts.downloads.start(reqBody.repo, f, reqBody.revision),
+          );
+          const body: DownloadsResponse = { downloads: started };
+          return json(body);
+        }
+
+        // /downloads/:id/cancel
+        const cancelMatch = /^\/downloads\/(.+)\/cancel$/.exec(path);
+        if (cancelMatch && req.method === "POST") {
+          const id = decodeURIComponent(cancelMatch[1]!);
+          opts.downloads.cancel(id);
+          return json({ ok: true });
         }
 
         if (path === "/instances" && req.method === "GET") {

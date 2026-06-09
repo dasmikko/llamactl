@@ -20,6 +20,7 @@ const BINDINGS: Binding[] = [
   { keys: "n", desc: "new instance profile for the selected model" },
   { keys: "d", desc: "delete the selected instance (press again to confirm)" },
   { keys: "l", desc: "view logs of a running row" },
+  { keys: "p", desc: "pull a model from Hugging Face (search / browse)" },
   { keys: "/", desc: "filter the list" },
   { keys: "?", desc: "toggle this help" },
   { keys: "Esc", desc: "close a modal / clear filter" },

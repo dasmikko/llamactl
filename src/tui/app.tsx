@@ -17,8 +17,10 @@ import { FlagEditor, type FlagEditorResult } from "./FlagEditor.tsx";
 import { LogViewer } from "./LogViewer.tsx";
 import { HelpOverlay } from "./HelpOverlay.tsx";
 import { Filter } from "./Filter.tsx";
+import { HfBrowser } from "./HfBrowser.tsx";
+import { Downloads } from "./Downloads.tsx";
 
-type Mode = "table" | "edit" | "logs" | "help" | "filter";
+type Mode = "table" | "edit" | "logs" | "help" | "filter" | "hf";
 
 /** Editor invocation context: are we creating a fresh profile or editing one? */
 interface EditorState {
@@ -60,6 +62,7 @@ function App({ config }: AppProps): React.ReactElement {
     instances,
     running,
     stats,
+    downloads,
     error,
     connected,
     connecting,
@@ -68,6 +71,9 @@ function App({ config }: AppProps): React.ReactElement {
     createInstance,
     updateInstance,
     removeInstance,
+    searchHf,
+    listHfFiles,
+    pull,
   } = daemon;
 
   const [mode, setMode] = useState<Mode>("table");
@@ -213,6 +219,7 @@ function App({ config }: AppProps): React.ReactElement {
 
       if (!current) {
         if (input === "/") setMode("filter");
+        else if (input === "p") setMode("hf");
         else if (input === "?") setMode("help");
         return;
       }
@@ -250,6 +257,10 @@ function App({ config }: AppProps): React.ReactElement {
       }
       if (input === "/") {
         setMode("filter");
+        return;
+      }
+      if (input === "p") {
+        setMode("hf");
         return;
       }
       if (input === "?") {
@@ -301,8 +312,20 @@ function App({ config }: AppProps): React.ReactElement {
           />
         ) : mode === "help" ? (
           <HelpView onClose={() => setMode("table")} />
+        ) : mode === "hf" ? (
+          <HfBrowser
+            searchHf={searchHf}
+            listHfFiles={listHfFiles}
+            onPull={(repo, file) => void pull(repo, file)}
+            onClose={() => setMode("table")}
+          />
         ) : (
           <>
+            {downloads.length > 0 ? (
+              <Box marginBottom={1}>
+                <Downloads downloads={downloads} />
+              </Box>
+            ) : null}
             <Table
               title="ACTIVE INSTANCES"
               rows={runningRows}
@@ -384,7 +407,7 @@ function StatusBar({
     );
   }
   const hint =
-    "Enter start/stop · e edit · n new · d delete · l logs · / filter · ? help · q quit";
+    "Enter start/stop · e edit · n new · d del · l logs · p pull · / filter · ? help · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>

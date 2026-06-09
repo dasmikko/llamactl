@@ -6,6 +6,12 @@
 
 import type {
   Config,
+  Download,
+  DownloadsResponse,
+  HfFile,
+  HfFilesResponse,
+  HfRepo,
+  HfSearchResponse,
   InstanceConfig,
   InstancesResponse,
   LaunchSpec,
@@ -15,6 +21,7 @@ import type {
 } from "../types.ts";
 import { LlamactlError, isLlamactlError } from "../errors.ts";
 import { discoverModels } from "../discovery/models.ts";
+import { modelScanPaths } from "../config/config.ts";
 import { connectDaemon, currentRuntime, clientFor } from "./../daemon/client.ts";
 import { readLiveRuntime, isProcessAlive, clearRuntime } from "../daemon/runtime.ts";
 import {
@@ -66,7 +73,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /* ------------------------------- list ------------------------------------ */
 
 export async function cmdList(config: Config, mode: OutputMode): Promise<number> {
-  const models = await discoverModels({ extraPaths: config.modelPaths });
+  const models = await discoverModels({ extraPaths: modelScanPaths(config) });
   models.sort((a, b) => a.id.localeCompare(b.id));
 
   if (mode.json) {
@@ -343,6 +350,133 @@ export async function cmdDaemonStop(mode: OutputMode): Promise<number> {
     return 0;
   }
   emitLine(`Daemon stopped (pid ${rt.pid}).`);
+  return 0;
+}
+
+/* ------------------------------ hugging face ----------------------------- */
+
+export async function cmdSearch(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const query = args.positionals.slice(1).join(" ").trim();
+  if (!query) throw new LlamactlError("bad_request", "usage: llamactl search <query>");
+
+  const conn = await connectDaemon({ config });
+  const { repos } = await conn.request<HfSearchResponse>(
+    "GET",
+    `/hf/search?q=${encodeURIComponent(query)}`,
+  );
+
+  if (mode.json) {
+    emitJson({ repos });
+    return 0;
+  }
+  if (repos.length === 0) {
+    emitLine(`No GGUF repos found for "${query}".`);
+    return 0;
+  }
+  const columns: Column<HfRepo>[] = [
+    { header: "REPO", get: (r) => r.id },
+    { header: "DOWNLOADS", get: (r) => String(r.downloads), alignRight: true },
+    { header: "LIKES", get: (r) => String(r.likes), alignRight: true },
+    { header: "GATED", get: (r) => (r.gated ? "yes" : "—") },
+  ];
+  emitLine(renderTable(repos, columns, mode));
+  emitLine("");
+  emitLine("Pull one with: llamactl pull <repo>:<quant>   (e.g. :Q4_K_M)");
+  return 0;
+}
+
+/** Resolve which file in a repo to pull from an optional quant / explicit file. */
+async function resolvePullFile(
+  conn: Awaited<ReturnType<typeof connectDaemon>>,
+  repo: string,
+  quant: string | undefined,
+  explicitFile: string | undefined,
+): Promise<string> {
+  if (explicitFile) return explicitFile;
+  const { files } = await conn.request<HfFilesResponse>(
+    "GET",
+    `/hf/files?repo=${encodeURIComponent(repo)}`,
+  );
+  if (files.length === 0) {
+    throw new LlamactlError("not_found", `no GGUF files found in ${repo}`);
+  }
+  const bySize = (a: HfFile, b: HfFile): number => (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0);
+  if (quant) {
+    const matches = files.filter((f) => f.quant?.toLowerCase() === quant.toLowerCase());
+    if (matches.length === 0) {
+      const avail = [...new Set(files.map((f) => f.quant).filter(Boolean))].join(", ");
+      throw new LlamactlError("not_found", `no "${quant}" quant in ${repo}. Available: ${avail || "—"}`);
+    }
+    return matches.sort(bySize)[0]!.rfilename;
+  }
+  if (files.length === 1) return files[0]!.rfilename;
+  const list = files.map((f) => `  ${f.quant ?? "?"}\t${f.rfilename}`).join("\n");
+  throw new LlamactlError(
+    "bad_request",
+    `${repo} has multiple files; pick a quant (repo:QUANT) or --file:\n${list}`,
+  );
+}
+
+export async function cmdPull(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const target = args.positionals[1];
+  if (!target) throw new LlamactlError("bad_request", "usage: llamactl pull <repo>[:quant] [--file <f>]");
+  // Split a trailing :quant off the "org/name" repo (repos never contain a colon).
+  const colon = target.indexOf(":");
+  const repo = colon === -1 ? target : target.slice(0, colon);
+  const quant = colon === -1 ? undefined : target.slice(colon + 1);
+
+  const conn = await connectDaemon({ config });
+  const file = await resolvePullFile(conn, repo, quant, strOpt(args, "file"));
+  const { downloads } = await conn.request<DownloadsResponse>("POST", "/pull", {
+    repo,
+    file,
+    revision: strOpt(args, "revision"),
+  });
+
+  if (mode.json) {
+    emitJson({ downloads });
+    return 0;
+  }
+  for (const d of downloads) emitLine(`Downloading ${d.repo} / ${d.file} → ${d.destPath}`);
+  emitLine("Track progress with: llamactl downloads");
+  return 0;
+}
+
+export async function cmdDownloads(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const sub = args.positionals[1];
+  const conn = await connectDaemon({ config });
+
+  if (sub === "cancel") {
+    const id = args.positionals[2];
+    if (!id) throw new LlamactlError("bad_request", "usage: llamactl downloads cancel <id>");
+    await conn.request<{ ok: true }>("POST", `/downloads/${encodeURIComponent(id)}/cancel`);
+    if (mode.json) emitJson({ canceled: true, id });
+    else emitLine(`Canceled ${id}.`);
+    return 0;
+  }
+
+  const { downloads } = await conn.request<DownloadsResponse>("GET", "/downloads");
+  if (mode.json) {
+    emitJson({ downloads });
+    return 0;
+  }
+  if (downloads.length === 0) {
+    emitLine("No downloads.");
+    return 0;
+  }
+  const pctOf = (d: Download): string =>
+    d.totalBytes ? `${Math.floor((100 * d.receivedBytes) / d.totalBytes)}%` : "—";
+  const columns: Column<Download>[] = [
+    { header: "ID", get: (d) => d.id },
+    { header: "STATUS", get: (d) => d.status },
+    { header: "PROGRESS", get: pctOf, alignRight: true },
+    {
+      header: "SIZE",
+      get: (d) => `${humanBytes(d.receivedBytes)}${d.totalBytes ? ` / ${humanBytes(d.totalBytes)}` : ""}`,
+      alignRight: true,
+    },
+  ];
+  emitLine(renderTable(downloads, columns, mode));
   return 0;
 }
 

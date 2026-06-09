@@ -67,6 +67,11 @@ export function logsDir(): string {
   return join(cacheDir(), "logs");
 }
 
+/** Default directory for models downloaded from Hugging Face. */
+export function downloadDir(): string {
+  return join(cacheDir(), "models");
+}
+
 /** Default model-cache directories scanned during discovery (Phase 2). */
 export function defaultModelDirs(): string[] {
   const home = homedir();

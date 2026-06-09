@@ -14,11 +14,14 @@ import {
   cmdDaemonStart,
   cmdDaemonStop,
   cmdDoctor,
+  cmdDownloads,
   cmdInit,
   cmdInstance,
   cmdList,
   cmdPs,
+  cmdPull,
   cmdRecommend,
+  cmdSearch,
   cmdStart,
   cmdStop,
   reportError,
@@ -42,6 +45,9 @@ Commands:
   stop <model>         Stop a running model
   ps                   Show running models (port, pid, uptime)
   instance ls|add|rm|edit   Manage saved launch profiles
+  search <query>       Search Hugging Face for GGUF models
+  pull <repo>[:quant]  Download a model from Hugging Face
+  downloads [cancel <id>]   List or cancel downloads
   daemon start|stop    Start or stop the background supervisor
   init                 Interactive setup wizard          (planned)
   recommend            Suggest a model for your hardware  (planned)
@@ -139,6 +145,12 @@ async function main(): Promise<number> {
         return await cmdPs(config, mode);
       case "instance":
         return await cmdInstance(a, config, mode);
+      case "search":
+        return await cmdSearch(a, config, mode);
+      case "pull":
+        return await cmdPull(a, config, mode);
+      case "downloads":
+        return await cmdDownloads(a, config, mode);
       case "daemon": {
         const sub = a.positionals[1];
         if (sub === "start") return await cmdDaemonStart(config, mode);

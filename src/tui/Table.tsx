@@ -30,7 +30,7 @@ export interface TableProps {
 }
 
 /** Columns shown in the compact "catalog" variant (the model list). */
-const CATALOG_HEADERS = new Set(["NAME", "ARCH", "MODE", "QUANT", "SIZE", "CTX", "STATUS"]);
+const CATALOG_HEADERS = new Set(["NAME", "AUTHOR", "ARCH", "MODE", "QUANT", "SIZE", "CTX", "STATUS"]);
 
 interface ColumnDef {
   header: string;
@@ -58,6 +58,7 @@ function ctxHuman(n: number | null | undefined): string {
 
 const COLUMNS: ColumnDef[] = [
   { header: "NAME", width: 26, get: (r) => r.name },
+  { header: "AUTHOR", width: 14, catalogOnly: true, get: (r) => r.model?.org ?? "—" },
   { header: "ARCH", width: 9, catalogOnly: true, get: (r) => r.model?.arch ?? "—" },
   { header: "MODE", width: 6, catalogOnly: true, get: (r) => r.model?.kind ?? "—" },
   { header: "QUANT", width: 9, get: (r) => r.quant ?? "—" },

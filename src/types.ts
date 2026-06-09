@@ -37,6 +37,8 @@ export interface Model {
   contextLength: number | null;
   /** Coarse kind inferred from metadata + filename. */
   kind: ModelKind;
+  /** Author/org the model came from (e.g. "unsloth"), derived from the path, or null. */
+  org: string | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -133,6 +135,10 @@ export interface Config {
   defaultGpuLayers: number;
   /** Extra args appended verbatim to every `llama-server` invocation. */
   llamaServerArgs: string[];
+  /** Directory where Hugging Face downloads land (also scanned for models). */
+  downloadDir: string;
+  /** Hugging Face token for gated/private repos, or null to use the HF cache. */
+  hfToken: string | null;
 }
 
 /** Contents of `runtime.json` — how the CLI finds and authenticates to the daemon. */
@@ -202,6 +208,53 @@ export interface StatsSnapshot {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Hugging Face model fetching.                                                */
+/* -------------------------------------------------------------------------- */
+
+/** A Hugging Face repo from a search result. */
+export interface HfRepo {
+  /** "org/name". */
+  id: string;
+  likes: number;
+  downloads: number;
+  /** ISO timestamp of the last modification, or null. */
+  updatedAt: string | null;
+  /** Gated or private repo (needs a token). */
+  gated: boolean;
+}
+
+/** A downloadable GGUF file within a repo. */
+export interface HfFile {
+  /** Path of the file within the repo. */
+  rfilename: string;
+  /** File size in bytes, or null if unknown. */
+  sizeBytes: number | null;
+  /** Quantization label parsed from the filename, or null. */
+  quant: string | null;
+}
+
+/** Status of a model download. */
+export type DownloadStatus = "downloading" | "done" | "error" | "canceled";
+
+/** A tracked model download. */
+export interface Download {
+  /** Stable id for this download. */
+  id: string;
+  repo: string;
+  /** rfilename being fetched. */
+  file: string;
+  /** Absolute destination path once complete. */
+  destPath: string;
+  receivedBytes: number;
+  /** Total bytes from Content-Length, or null if the server didn't say. */
+  totalBytes: number | null;
+  status: DownloadStatus;
+  /** Error message when status is "error". */
+  error: string | null;
+  startedAt: number;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Control-plane wire types (CLI/TUI <-> daemon over loopback HTTP).            */
 /* -------------------------------------------------------------------------- */
 
@@ -233,6 +286,8 @@ export type ErrorCode =
   | "instance_not_found"
   | "instance_exists"
   | "invalid_spec"
+  | "hf_error"
+  | "download_not_found"
   | "internal";
 
 /**
@@ -281,6 +336,30 @@ export interface StatsResponse {
   stats: StatsSnapshot;
 }
 
+/** GET /hf/search response — matching repos. */
+export interface HfSearchResponse {
+  repos: HfRepo[];
+}
+
+/** GET /hf/files response — GGUF files in a repo. */
+export interface HfFilesResponse {
+  files: HfFile[];
+}
+
+/** GET /downloads response — tracked downloads. */
+export interface DownloadsResponse {
+  downloads: Download[];
+}
+
+/** POST /pull request body. Downloads `file` (and any sibling shards) from `repo`. */
+export interface PullRequest {
+  repo: string;
+  /** rfilename to fetch; if omitted the caller should resolve a default first. */
+  file: string;
+  /** Git revision; defaults to "main". */
+  revision?: string;
+}
+
 /** GET /health response (the one unauthenticated route). */
 export interface HealthResponse {
   ok: true;
@@ -325,6 +404,21 @@ export interface ISupervisor {
   ensureReady(spec: LaunchSpec): Promise<RunningModel>;
   /** Terminate every child cleanly (daemon shutdown). */
   shutdownAll(): Promise<void>;
+}
+
+/** Manages background model downloads (owned by the daemon). */
+export interface IDownloadManager {
+  /** All tracked downloads (active and recently finished). */
+  list(): Download[];
+  get(id: string): Download | undefined;
+  /**
+   * Begin downloading `file` from `repo` in the background. Returns the tracked
+   * Download immediately (status "downloading"). Idempotent per repo+file: a
+   * download already in flight for the same target is returned as-is.
+   */
+  start(repo: string, file: string, revision?: string): Download;
+  /** Cancel an in-flight download. Throws LlamactlError("download_not_found"). */
+  cancel(id: string): void;
 }
 
 /** Persisted CRUD over saved instance profiles (owned by the daemon). */

@@ -18,6 +18,12 @@ import type {
   PsResponse,
   InstancesResponse,
   StatsResponse,
+  Download,
+  DownloadsResponse,
+  HfRepo,
+  HfFile,
+  HfSearchResponse,
+  HfFilesResponse,
 } from "../types.ts";
 import { connectDaemon, type DaemonConnection } from "../daemon/client.ts";
 import { isLlamactlError } from "../errors.ts";
@@ -35,6 +41,7 @@ export interface UseDaemon {
   instances: InstanceConfig[];
   running: RunningModel[];
   stats: StatsSnapshot | null;
+  downloads: Download[];
   error: string | null;
   connected: boolean;
   /** True until the first connect attempt has settled. */
@@ -47,6 +54,14 @@ export interface UseDaemon {
     patch: { name?: string; spec?: LaunchSpec },
   ): Promise<void>;
   removeInstance(id: string): Promise<void>;
+  /** Search Hugging Face; returns repos directly (not stored in state). */
+  searchHf(query: string): Promise<HfRepo[]>;
+  /** List the GGUF files in a repo. */
+  listHfFiles(repo: string): Promise<HfFile[]>;
+  /** Start downloading a file (and any sibling shards) from a repo. */
+  pull(repo: string, file: string): Promise<void>;
+  /** Cancel an in-flight download. */
+  cancelDownload(id: string): Promise<void>;
   refreshNow(): Promise<void>;
 }
 
@@ -58,6 +73,7 @@ export function useDaemon(config: Config): UseDaemon {
   const [instances, setInstances] = useState<InstanceConfig[]>([]);
   const [running, setRunning] = useState<RunningModel[]>([]);
   const [stats, setStats] = useState<StatsSnapshot | null>(null);
+  const [downloads, setDownloads] = useState<Download[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(true);
@@ -84,18 +100,23 @@ export function useDaemon(config: Config): UseDaemon {
     const conn = connRef.current;
     if (!conn) return;
     try {
-      const [ps, st] = await Promise.all([
+      const [ps, st, dl] = await Promise.all([
         conn.request<PsResponse>("GET", "/ps"),
         conn.request<StatsResponse>("GET", "/stats"),
+        conn.request<DownloadsResponse>("GET", "/downloads"),
       ]);
       if (!mountedRef.current) return;
       setRunning(ps.running);
       setStats(st.stats);
+      setDownloads(dl.downloads);
       setError(null);
+      // While downloads are in flight or recently finished, keep the model list
+      // fresh so a completed download shows up in the catalog promptly.
+      if (dl.downloads.length > 0) void refreshStatic();
     } catch (e) {
       if (mountedRef.current) setError(errMessage(e));
     }
-  }, []);
+  }, [refreshStatic]);
 
   const refreshNow = useCallback(async (): Promise<void> => {
     await Promise.all([refreshStatic(), refreshDynamic()]);
@@ -195,11 +216,51 @@ export function useDaemon(config: Config): UseDaemon {
     [runMutation],
   );
 
+  const searchHf = useCallback(async (query: string): Promise<HfRepo[]> => {
+    const conn = connRef.current;
+    if (!conn) throw new Error("not connected to the daemon");
+    const res = await conn.request<HfSearchResponse>(
+      "GET",
+      `/hf/search?q=${encodeURIComponent(query)}`,
+    );
+    return res.repos;
+  }, []);
+
+  const listHfFiles = useCallback(async (repo: string): Promise<HfFile[]> => {
+    const conn = connRef.current;
+    if (!conn) throw new Error("not connected to the daemon");
+    const res = await conn.request<HfFilesResponse>(
+      "GET",
+      `/hf/files?repo=${encodeURIComponent(repo)}`,
+    );
+    return res.files;
+  }, []);
+
+  const pull = useCallback(
+    (repo: string, file: string) =>
+      runMutation((conn) =>
+        conn.request<DownloadsResponse>("POST", "/pull", { repo, file }),
+      ),
+    [runMutation],
+  );
+
+  const cancelDownload = useCallback(
+    (id: string) =>
+      runMutation((conn) =>
+        conn.request<{ ok: true }>(
+          "POST",
+          `/downloads/${encodeURIComponent(id)}/cancel`,
+        ),
+      ),
+    [runMutation],
+  );
+
   return {
     models,
     instances,
     running,
     stats,
+    downloads,
     error,
     connected,
     connecting,
@@ -208,6 +269,10 @@ export function useDaemon(config: Config): UseDaemon {
     createInstance,
     updateInstance,
     removeInstance,
+    searchHf,
+    listHfFiles,
+    pull,
+    cancelDownload,
     refreshNow,
   };
 }

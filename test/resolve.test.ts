@@ -16,6 +16,7 @@ const models: Model[] = [
     arch: null,
     contextLength: null,
     kind: "text",
+    org: null,
   },
   {
     id: "llama-3.1-8b-instruct-q8_0",
@@ -28,6 +29,7 @@ const models: Model[] = [
     arch: null,
     contextLength: null,
     kind: "text",
+    org: null,
   },
   {
     id: "mistral-7b-q4_k_m",
@@ -40,6 +42,7 @@ const models: Model[] = [
     arch: null,
     contextLength: null,
     kind: "text",
+    org: null,
   },
 ];
 

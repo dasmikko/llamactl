@@ -10,9 +10,12 @@ import { discoverModels, resolveModel, watchModels } from "../discovery/models.t
 import { Supervisor } from "../supervisor/process.ts";
 import { Sampler } from "../monitor/sampler.ts";
 import { loadInstanceStore } from "../instances/store.ts";
+import { DownloadManager } from "../hf/download.ts";
+import { readHfTokenFromCache } from "../hf/client.ts";
 import { startControlPlane } from "./controlplane.ts";
 import { generateToken, writeRuntime, clearRuntime } from "./runtime.ts";
 import { logsDir } from "../config/paths.ts";
+import { modelScanPaths } from "../config/config.ts";
 import { mkdir } from "node:fs/promises";
 
 /** Resolve the llama-server binary path: explicit config, else PATH lookup. */
@@ -37,14 +40,24 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
 
   // Live model list: discovery refreshes it; resolver and proxy read it through
   // closures so new downloads are picked up without a restart.
-  let currentModels: Model[] = await discoverModels({ extraPaths: config.modelPaths });
+  const scanPaths = modelScanPaths(config);
+  let currentModels: Model[] = await discoverModels({ extraPaths: scanPaths });
   const resolver: ModelResolver = {
     resolve: (sel) => resolveModel(currentModels, sel),
     all: () => currentModels,
   };
-  const stopWatch = watchModels({ extraPaths: config.modelPaths }, (m) => {
+  const stopWatch = watchModels({ extraPaths: scanPaths }, (m) => {
     currentModels = m;
   });
+  // Re-run discovery on demand (e.g. when a download finishes) so a new model
+  // appears immediately, without waiting on a filesystem-watch event.
+  const refreshModels = (): void => {
+    void discoverModels({ extraPaths: scanPaths })
+      .then((m) => {
+        currentModels = m;
+      })
+      .catch(() => {});
+  };
 
   const supervisor = new Supervisor({
     config,
@@ -57,6 +70,17 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
   const sampler = new Sampler({ supervisor });
   sampler.start();
 
+  // Hugging Face downloads land in the (scanned) download dir; the watcher above
+  // picks up finished files live. Token: explicit config, else the HF CLI cache.
+  await mkdir(config.downloadDir, { recursive: true });
+  const getHfToken = async (): Promise<string | null> =>
+    config.hfToken ?? (await readHfTokenFromCache());
+  const downloads = new DownloadManager({
+    destDir: () => config.downloadDir,
+    getToken: getHfToken,
+    onComplete: () => refreshModels(),
+  });
+
   const startedAt = Date.now();
   const token = generateToken();
 
@@ -67,6 +91,8 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
     supervisor,
     instances,
     sampler,
+    downloads,
+    getHfToken,
     models: () => currentModels,
     startPort: config.controlPort,
     pid: process.pid,
