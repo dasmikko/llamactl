@@ -4,7 +4,7 @@
  * Esc closes. Missing/unreadable files render a friendly notice.
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 
 export interface LogViewerProps {
@@ -29,11 +29,58 @@ export function LogViewer({
 }: LogViewerProps): React.ReactElement {
   const [lines, setLines] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>("loading…");
+  const [scrollOffset, setScrollOffset] = useState(0); // 0 = at bottom
+  const [followMode, setFollowMode] = useState(true);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
   const { stdout } = useStdout();
 
   useInput((_input, key) => {
     if (key.escape) onClose();
+
+    const currentLines = linesRef.current;
+    const maxRows = Math.max(3, (stdout.rows || 24) - CHROME_ROWS);
+    const maxScrollOffset = Math.max(0, currentLines.length - maxRows);
+
+    if (key.upArrow || key.leftArrow) {
+      setScrollOffset((prev) => Math.min(prev + 5, maxScrollOffset));
+      setFollowMode(false);
+      return;
+    }
+    if (key.downArrow || key.rightArrow) {
+      setScrollOffset((prev) => Math.max(prev - 5, 0));
+      return;
+    }
+    if (key.pageUp) {
+      setScrollOffset((prev) => Math.min(prev + maxRows, maxScrollOffset));
+      setFollowMode(false);
+      return;
+    }
+    if (key.pageDown) {
+      setScrollOffset((prev) => Math.max(prev - maxRows, 0));
+      return;
+    }
+    if (_input === "f" || _input === "F") {
+      setScrollOffset(0);
+      setFollowMode(true);
+      return;
+    }
+    if (_input === " ") {
+      setFollowMode((prev) => {
+        const next = !prev;
+        if (next) setScrollOffset(0);
+        return next;
+      });
+      return;
+    }
   });
+
+  // Auto-follow when new lines arrive while in follow mode.
+  useEffect(() => {
+    if (followMode && lines.length > 0) {
+      setScrollOffset(0);
+    }
+  }, [lines.length]);
 
   useEffect(() => {
     let active = true;
@@ -72,10 +119,14 @@ export function LogViewer({
     };
   }, [logPath]);
 
-  // Only render as many of the most-recent lines as fit the terminal height,
-  // so the modal can't grow past the screen on a noisy update.
   const maxRows = Math.max(3, (stdout.rows || 24) - CHROME_ROWS);
-  const visible = lines.slice(-maxRows);
+  const visibleCount = Math.min(maxRows, lines.length);
+
+  // Compute the slice to display based on scrollOffset.
+  // scrollOffset = 0 means show the last maxRows (follow mode).
+  // scrollOffset > 0 means skip that many lines from the end.
+  const startIdx = Math.max(0, lines.length - visibleCount - scrollOffset);
+  const visible = lines.slice(startIdx, startIdx + visibleCount);
 
   return (
     <Box
@@ -100,9 +151,22 @@ export function LogViewer({
         ))}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>
-          Esc close{lines.length > visible.length ? `  ·  showing last ${visible.length} of ${lines.length}` : ""}
-        </Text>
+        {notice ? null : (
+          <Text dimColor>
+            {followMode ? (
+              <>
+                <Text color="green">FOLLOW</Text>
+                {" "}· Esc close · Space unfollow · ↑↓ scroll · Page Up/Down page · F follow
+              </>
+            ) : (
+              <>
+                <Text color="yellow">SCROLLED UP</Text>
+                {" "}· {lines.length - visibleCount - scrollOffset + 1}–{lines.length - scrollOffset} of {lines.length}
+                {" "}· Space follow · Esc close
+              </>
+            )}
+          </Text>
+        )}
       </Box>
     </Box>
   );
