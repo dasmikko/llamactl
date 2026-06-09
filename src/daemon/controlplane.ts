@@ -29,6 +29,7 @@ import type {
 import { LlamactlError, toLlamactlError } from "../errors.ts";
 import { findFreePort } from "../net/ports.ts";
 import { searchModels, listGgufFiles } from "../hf/client.ts";
+import { deleteModelFiles } from "../discovery/models.ts";
 import { constantTimeEqual } from "./runtime.ts";
 
 /** The slice of the resource sampler the control plane needs. */
@@ -49,6 +50,8 @@ export interface ControlPlaneOptions {
   getHfToken: () => Promise<string | null>;
   /** Returns the current set of discovered models. */
   models: () => Model[];
+  /** Re-run model discovery (e.g. after a model file is deleted). */
+  refreshModels: () => void;
   /** First control-plane port to try; scans upward if taken. */
   startPort: number;
   pid: number;
@@ -224,6 +227,24 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
         if (path === "/instances" && req.method === "GET") {
           const body: InstancesResponse = { instances: opts.instances.list() };
           return json(body);
+        }
+
+        // DELETE /models/:id — remove a model's file(s) from disk.
+        const modelMatch = /^\/models\/(.+)$/.exec(path);
+        if (modelMatch && req.method === "DELETE") {
+          const id = decodeURIComponent(modelMatch[1]!);
+          const model = opts.models().find((m) => m.id === id);
+          if (!model) {
+            throw new LlamactlError("model_not_found", `no model "${id}"`, { detail: { id } });
+          }
+          if (opts.supervisor.get(id)) {
+            throw new LlamactlError("already_running", `stop "${id}" before deleting it`, {
+              detail: { id },
+            });
+          }
+          const removed = await deleteModelFiles(model);
+          opts.refreshModels();
+          return json({ ok: true, removed });
         }
 
         if (path === "/instances" && req.method === "POST") {

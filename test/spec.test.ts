@@ -79,6 +79,14 @@ describe("specToArgs", () => {
     expect(auto).not.toContain("--flash-attn");
   });
 
+  test("emits --n-cpu-moe when set", () => {
+    const args = specToArgs({
+      modelPath: "/x.gguf", port: 1, configArgs: [],
+      spec: { model: "m", nCpuMoe: 24 },
+    });
+    expect(args[args.indexOf("--n-cpu-moe") + 1]).toBe("24");
+  });
+
   test("emits reasoning, jinja, and chat-template flags", () => {
     const on = specToArgs({
       modelPath: "/x.gguf", port: 1, configArgs: [],

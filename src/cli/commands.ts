@@ -20,7 +20,7 @@ import type {
   PsResponse,
 } from "../types.ts";
 import { LlamactlError, isLlamactlError } from "../errors.ts";
-import { discoverModels } from "../discovery/models.ts";
+import { discoverModels, resolveModel } from "../discovery/models.ts";
 import { modelScanPaths } from "../config/config.ts";
 import { connectDaemon, currentRuntime, clientFor } from "./../daemon/client.ts";
 import { readLiveRuntime, isProcessAlive, clearRuntime } from "../daemon/runtime.ts";
@@ -34,7 +34,7 @@ import {
   humanUptime,
   renderTable,
 } from "./output.ts";
-import { type ParsedArgs, numOpt, strOpt } from "./args.ts";
+import { type ParsedArgs, numOpt, strOpt, boolOpt } from "./args.ts";
 
 /** Build a LaunchSpec from a model selector and the start/instance CLI flags. */
 function flagsToSpec(model: string, args: ParsedArgs): LaunchSpec {
@@ -43,6 +43,8 @@ function flagsToSpec(model: string, args: ParsedArgs): LaunchSpec {
   if (ctx !== undefined) spec.ctxSize = ctx;
   const ngl = numOpt(args, "ngl") ?? numOpt(args, "gpu-layers");
   if (ngl !== undefined) spec.gpuLayers = ngl;
+  const ncmoe = numOpt(args, "n-cpu-moe") ?? numOpt(args, "ncmoe");
+  if (ncmoe !== undefined) spec.nCpuMoe = ncmoe;
   const threads = numOpt(args, "threads");
   if (threads !== undefined) spec.threads = threads;
   const batch = numOpt(args, "batch-size");
@@ -225,8 +227,8 @@ async function cmdInstanceEdit(args: ParsedArgs, config: Config, mode: OutputMod
 
 /** Whether any spec-shaping flag is present on the args. */
 function hasSpecFlags(args: ParsedArgs): boolean {
-  const keys = ["ctx", "ngl", "gpu-layers", "threads", "batch-size", "flash-attn",
-    "reasoning", "jinja", "cache-type-k", "cache-type-v", "chat-template",
+  const keys = ["ctx", "ngl", "gpu-layers", "n-cpu-moe", "ncmoe", "threads", "batch-size",
+    "flash-attn", "reasoning", "jinja", "cache-type-k", "cache-type-v", "chat-template",
     "host", "port", "extra-args"];
   return keys.some((k) => args.options[k] !== undefined);
 }
@@ -350,6 +352,39 @@ export async function cmdDaemonStop(mode: OutputMode): Promise<number> {
     return 0;
   }
   emitLine(`Daemon stopped (pid ${rt.pid}).`);
+  return 0;
+}
+
+/* -------------------------------- rm model ------------------------------- */
+
+export async function cmdRm(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const selector = args.positionals[1];
+  if (!selector) throw new LlamactlError("bad_request", "usage: llamactl rm <model> --yes");
+
+  // Resolve locally so we can show what will be deleted and confirm by id.
+  const models = await discoverModels({ extraPaths: modelScanPaths(config) });
+  const model = resolveModel(models, selector); // throws model_not_found / ambiguous_model
+
+  if (!boolOpt(args, "yes")) {
+    if (mode.json) {
+      emitJson({ wouldDelete: model.id, path: model.path, hint: "pass --yes to confirm" });
+      return 0;
+    }
+    emitLine(`This will delete ${model.id} (${model.path}) from disk.`);
+    emitLine("Re-run with --yes to confirm.");
+    return 0;
+  }
+
+  const conn = await connectDaemon({ config });
+  const res = await conn.request<{ ok: true; removed: string[] }>(
+    "DELETE",
+    `/models/${encodeURIComponent(model.id)}`,
+  );
+  if (mode.json) {
+    emitJson(res);
+    return 0;
+  }
+  emitLine(`Deleted ${model.id} (${res.removed.length} file(s)).`);
   return 0;
 }
 

@@ -10,12 +10,13 @@
  * frozen `IDownloadManager` seam in `../types.ts`.
  */
 
-import { mkdir, rename, unlink } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { mkdir, rename, symlink, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative } from "node:path";
 
 import type { Download, IDownloadManager } from "../types.ts";
 import { LlamactlError } from "../errors.ts";
 import { fileUrl } from "./client.ts";
+import { cleanEtag, repoCacheDir } from "./cache.ts";
 
 export interface DownloadManagerOptions {
   /** Base download directory; a model lands at `${destDir()}/${repo}/${basename(file)}`. */
@@ -175,65 +176,94 @@ export class DownloadManager implements IDownloadManager {
   }
 
   /**
-   * Perform the streaming download for `entry`. Writes to a `.part` temp file
-   * via a Bun FileSink, then atomically renames on success. Any failure is
-   * caught and recorded on the record so it never escapes this method.
+   * Perform the download for `entry`. Reads HF metadata (commit + blob etag),
+   * then writes into the Hugging Face Hub cache layout — a `blobs/<etag>` file
+   * with a `snapshots/<commit>/<file>` symlink and a `refs/<rev>` pointer — so
+   * the result is shared with llama.cpp and de-duplicated against any blob that
+   * is already cached. Falls back to a flat `destDir/repo/basename` layout when
+   * HF metadata is unavailable (e.g. in tests). Any failure is caught and
+   * recorded on the record so it never escapes this method.
    */
   private async run(entry: Entry): Promise<void> {
     const { record, controller, revision } = entry;
-    const dest = record.destPath;
-    const tmp = `${dest}.part`;
-
-    // The temp-file sink, created once we have an OK response. Held outside the
-    // try so the catch/cleanup path can close it on abort or error.
-    let sink: Bun.FileSink | null = null;
+    let partPath: string | null = null;
 
     try {
-      await mkdir(dirname(dest), { recursive: true });
-
       const token = await this.getToken();
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const res = await fetch(this.urlFor(record.repo, record.file, revision), {
+      // Metadata request: don't auto-follow so we can read the Hub headers that
+      // huggingface.co sets before redirecting to the CDN.
+      const metaRes = await fetch(this.urlFor(record.repo, record.file, revision), {
         headers,
+        redirect: "manual",
         signal: controller.signal,
       });
 
-      if (!res.ok) {
+      if (metaRes.status >= 400) {
         const authHint =
-          res.status === 401 || res.status === 403
+          metaRes.status === 401 || metaRes.status === 403
             ? " (a Hugging Face token may be required for this gated/private repo)"
             : "";
-        this.fail(record, `HTTP ${res.status}${authHint}`);
+        this.fail(record, `HTTP ${metaRes.status}${authHint}`);
         return;
       }
 
-      const lenHeader = res.headers.get("content-length");
-      if (lenHeader !== null) {
-        const total = Number.parseInt(lenHeader, 10);
+      const commit = metaRes.headers.get("x-repo-commit");
+      const etag = cleanEtag(metaRes.headers.get("x-linked-etag") ?? metaRes.headers.get("etag"));
+      const sizeHeader = metaRes.headers.get("x-linked-size") ?? metaRes.headers.get("content-length");
+      if (sizeHeader !== null) {
+        const total = Number.parseInt(sizeHeader, 10);
         if (Number.isFinite(total) && total >= 0) record.totalBytes = total;
       }
 
-      const body = res.body;
-      if (body === null) {
-        this.fail(record, "empty response body");
-        return;
-      }
+      if (commit && etag) {
+        // ---- Hugging Face Hub cache layout (shared with llama.cpp). ----
+        const repoDir = repoCacheDir(this.destDirFn(), record.repo);
+        const blobPath = join(repoDir, "blobs", etag);
+        const snapFile = join(repoDir, "snapshots", commit, record.file);
+        record.destPath = snapFile;
 
-      sink = Bun.file(tmp).writer();
-      const reader = body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          sink.write(value);
-          record.receivedBytes += value.byteLength;
+        if (await Bun.file(blobPath).exists()) {
+          // Blob already cached (possibly by llama.cpp) — skip the download.
+          record.receivedBytes = record.totalBytes ?? 0;
+          await metaRes.body?.cancel().catch(() => {});
+        } else {
+          const bodyRes = await this.resolveBody(metaRes, controller.signal);
+          if (!bodyRes.ok) {
+            this.fail(record, `HTTP ${bodyRes.status}`);
+            return;
+          }
+          partPath = `${blobPath}.part`;
+          await mkdir(dirname(blobPath), { recursive: true });
+          await this.stream(bodyRes, partPath, record);
+          await rename(partPath, blobPath);
+          partPath = null;
         }
+
+        // snapshot symlink (relative, like huggingface_hub) + refs pointer.
+        await mkdir(dirname(snapFile), { recursive: true });
+        await symlink(relative(dirname(snapFile), blobPath), snapFile).catch((e: unknown) => {
+          if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        });
+        await mkdir(join(repoDir, "refs"), { recursive: true });
+        await writeFile(join(repoDir, "refs", revision), commit);
+      } else {
+        // ---- Flat fallback (no HF metadata, e.g. a local test server). ----
+        const dest = join(this.destDirFn(), record.repo, basename(record.file));
+        record.destPath = dest;
+        const bodyRes = await this.resolveBody(metaRes, controller.signal);
+        if (!bodyRes.ok) {
+          this.fail(record, `HTTP ${bodyRes.status}`);
+          return;
+        }
+        partPath = `${dest}.part`;
+        await mkdir(dirname(dest), { recursive: true });
+        await this.stream(bodyRes, partPath, record);
+        await rename(partPath, dest);
+        partPath = null;
       }
 
-      await sink.end();
-      sink = null;
-      await rename(tmp, dest);
       record.status = "done";
       // Let the daemon re-discover so the new model appears, then clear the
       // finished entry so it doesn't stay pinned in the UI.
@@ -244,23 +274,51 @@ export class DownloadManager implements IDownloadManager {
       }
       this.scheduleRemoval(record.id);
     } catch (e) {
-      // Close the sink before touching the partial file.
-      if (sink !== null) {
-        try {
-          await sink.end();
-        } catch {
-          /* ignore */
-        }
-      }
       if (isAbortError(e)) {
         record.status = "canceled";
-        // Best-effort cleanup of the partial download.
-        await unlink(tmp).catch(() => {});
+        if (partPath) await unlink(partPath).catch(() => {});
         this.scheduleRemoval(record.id);
         return;
       }
       this.fail(record, e instanceof Error ? e.message : String(e));
-      await unlink(tmp).catch(() => {});
+      if (partPath) await unlink(partPath).catch(() => {});
+    }
+  }
+
+  /** Follow a metadata redirect to the CDN (without auth), or return the response. */
+  private async resolveBody(metaRes: Response, signal: AbortSignal): Promise<Response> {
+    if (metaRes.status >= 300 && metaRes.status < 400) {
+      const loc = metaRes.headers.get("location");
+      if (!loc) throw new Error(`redirect without a location (HTTP ${metaRes.status})`);
+      // The CDN URL is presigned; sending the HF token to it is unnecessary.
+      return fetch(loc, { redirect: "follow", signal });
+    }
+    return metaRes;
+  }
+
+  /** Stream a response body to `tmp`, updating receivedBytes; closes the sink. */
+  private async stream(res: Response, tmp: string, record: Download): Promise<void> {
+    const body = res.body;
+    if (body === null) throw new Error("empty response body");
+    const sink = Bun.file(tmp).writer();
+    try {
+      const reader = body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          sink.write(value);
+          record.receivedBytes += value.byteLength;
+        }
+      }
+      await sink.end();
+    } catch (e) {
+      try {
+        await sink.end();
+      } catch {
+        /* ignore */
+      }
+      throw e;
     }
   }
 

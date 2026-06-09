@@ -94,6 +94,7 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
     downloads,
     getHfToken,
     models: () => currentModels,
+    refreshModels: () => refreshModels(),
     startPort: config.controlPort,
     pid: process.pid,
     startedAt,

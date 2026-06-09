@@ -65,9 +65,11 @@ A model moves between the two lists as you start/stop it, and the cursor follows
 | --- | --- |
 | `j`/`k`, ↓/↑ | Move selection (`g`/`G` jump to top/bottom) |
 | `Enter` | Start the selected model / profile (or stop it if running) |
+| `i` | Show full details about the selected model (path, arch, context, spec, live stats) |
 | `e` | Edit launch flags for the selected row |
 | `n` | Create a new saved instance profile |
 | `d` | Delete the selected saved profile (confirm with `d`/`y`) |
+| `D` | Delete the model file(s) from disk (confirm with `D`/`y`; stop it first) |
 | `l` | Tail the running instance's log |
 | `p` | Pull a model from Hugging Face (search → browse → download) |
 | `/` | Filter the list |
@@ -94,6 +96,7 @@ fields type directly, and choosers use `←/→`:
 | `llamactl start <model> [flags]` | Start a model with ad-hoc flags |
 | `llamactl start --instance <id>` | Start a saved profile |
 | `llamactl stop <model>` | Stop a running instance |
+| `llamactl rm <model> --yes` | Delete a model's file(s) from disk |
 | `llamactl ps` | Show running instances (port, pid, uptime, restarts) |
 | `llamactl instance ls\|add\|rm\|edit` | Manage saved launch profiles |
 | `llamactl search <query>` | Search Hugging Face for GGUF repos |
@@ -135,8 +138,11 @@ llamactl downloads                               # watch progress
 llamactl downloads cancel <id>                   # cancel one
 ```
 
-Downloads land in `$XDG_CACHE_HOME/llamactl/models/<repo>/<file>` (configurable
-via `downloadDir`), which is scanned automatically. Sharded models pull all their
+Downloads land in the **standard Hugging Face Hub cache** (`~/.cache/huggingface/hub`,
+or `$HF_HOME`/`$HF_HUB_CACHE`), in the same `models--<org>--<name>/{blobs,snapshots,refs}`
+layout that `huggingface_hub` and **llama.cpp's `-hf`** use — so a model llamactl
+downloads is shared with llama.cpp (it shows up in `llama-server --cache-list`) and a
+blob already in the cache is **not re-downloaded**. Sharded models pull all their
 shards. **Gated/private repos** work when a token is available: set `hfToken` /
 `LLAMACTL_HF_TOKEN`, or just log in once with `huggingface-cli login` (llamactl
 reuses `~/.cache/huggingface/token`).
@@ -168,7 +174,7 @@ The config file is JSON at `$XDG_CONFIG_HOME/llamactl/config.json`
 | Default context size | `LLAMACTL_CTX` | `--ctx` | `4096` |
 | Default GPU layers | `LLAMACTL_GPU_LAYERS` | `--ngl` | `99` (offload all) |
 | `llama-server` path | `LLAMACTL_LLAMA_SERVER` | `--llama-server` | from `PATH` |
-| Download dir | `LLAMACTL_DOWNLOAD_DIR` | — | `$XDG_CACHE_HOME/llamactl/models` |
+| Download dir (HF Hub cache) | `LLAMACTL_DOWNLOAD_DIR` | — | `~/.cache/huggingface/hub` (`$HF_HOME`/`$HF_HUB_CACHE`) |
 | Hugging Face token | `LLAMACTL_HF_TOKEN` | — | `~/.cache/huggingface/token` |
 
 By default llamactl offloads **all** layers to the GPU (`--gpu-layers 99`). For a

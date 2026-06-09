@@ -27,6 +27,8 @@ const VALUE_OPTS = new Set([
   "model-paths",
   "ngl",
   "gpu-layers",
+  "n-cpu-moe",
+  "ncmoe",
   "threads",
   "batch-size",
   "cache-type-k",

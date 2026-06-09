@@ -130,6 +130,7 @@ beforeAll(async () => {
     downloads: mockDownloads,
     getHfToken,
     models: () => [model("alpha"), model("beta")],
+    refreshModels: () => {},
     startPort: await findFreePort(49200),
     pid: process.pid,
     startedAt: Date.now(),
@@ -238,6 +239,27 @@ test("POST /downloads/:id/cancel cancels a known id", async () => {
   expect(res.status).toBe(200);
 });
 
+test("DELETE /models/:id removes a known model (files best-effort)", async () => {
+  const res = await fetch(base() + "/models/alpha", {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ok: boolean; removed: string[] };
+  expect(body.ok).toBe(true);
+  expect(Array.isArray(body.removed)).toBe(true);
+});
+
+test("DELETE /models/:id for an unknown model => 404", async () => {
+  const res = await fetch(base() + "/models/ghost", {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(404);
+  const body = (await res.json()) as { error: { code: string } };
+  expect(body.error.code).toBe("model_not_found");
+});
+
 test("unknown route => 404 not_found", async () => {
   const res = await fetch(base() + "/nope", { headers: { authorization: `Bearer ${TOKEN}` } });
   expect(res.status).toBe(404);
@@ -256,6 +278,7 @@ test("control plane scans upward when its preferred port is taken", async () => 
     downloads: mockDownloads,
     getHfToken,
       models: () => [],
+      refreshModels: () => {},
       startPort: taken,
       pid: process.pid,
       startedAt: Date.now(),

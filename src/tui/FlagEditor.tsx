@@ -36,6 +36,7 @@ type FieldId =
   | "cacheTypeK"
   | "cacheTypeV"
   | "gpuLayers"
+  | "nCpuMoe"
   | "threads"
   | "batchSize"
   | "flashAttn"
@@ -62,6 +63,7 @@ const FIELDS: FieldDef[] = [
   { id: "cacheTypeK", label: "Cache K" },
   { id: "cacheTypeV", label: "Cache V" },
   { id: "gpuLayers", label: "GPU layers" },
+  { id: "nCpuMoe", label: "CPU MoE" },
   { id: "threads", label: "Threads" },
   { id: "batchSize", label: "Batch size" },
   { id: "flashAttn", label: "Flash attn" },
@@ -142,6 +144,7 @@ export function FlagEditor({
     name: initialName,
     model: initialSpec.model,
     gpuLayers: numStr(initialSpec.gpuLayers),
+    nCpuMoe: numStr(initialSpec.nCpuMoe),
     threads: numStr(initialSpec.threads),
     batchSize: numStr(initialSpec.batchSize),
     chatTemplate: initialSpec.chatTemplate ?? "",
@@ -181,6 +184,7 @@ export function FlagEditor({
       model: values.model.trim(),
       ctxSize: ctxValue(),
       gpuLayers: parseNum(values.gpuLayers),
+      nCpuMoe: parseNum(values.nCpuMoe),
       threads: parseNum(values.threads),
       batchSize: parseNum(values.batchSize),
       flashAttn: enumValue("flashAttn") as "on" | "off" | undefined,

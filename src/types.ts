@@ -57,6 +57,8 @@ export interface LaunchSpec {
   ctxSize?: number;
   /** --gpu-layers / -ngl (0 = CPU only). */
   gpuLayers?: number;
+  /** --n-cpu-moe: keep the first N layers' MoE expert weights on the CPU. */
+  nCpuMoe?: number;
   /** --threads */
   threads?: number;
   /** --batch-size / -b */

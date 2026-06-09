@@ -72,6 +72,47 @@ describe("DownloadManager", () => {
     }
   });
 
+  test("writes the HF Hub cache layout when metadata headers are present", async () => {
+    const body = new TextEncoder().encode("gguf-cache-bytes");
+    const commit = "0123456789abcdef0123456789abcdef01234567";
+    const etag = "ab".repeat(32); // 64-hex sha256-like blob hash
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(body, {
+          headers: {
+            "content-length": String(body.byteLength),
+            "x-repo-commit": commit,
+            "x-linked-etag": `"${etag}"`,
+            "x-linked-size": String(body.byteLength),
+          },
+        });
+      },
+    });
+    try {
+      const mgr = new DownloadManager({
+        destDir: () => destDir,
+        getToken: () => null,
+        urlFor: () => `http://127.0.0.1:${server.port}/f`,
+      });
+      const rec = mgr.start("org/Name", "model.gguf");
+      await until(() => mgr.get(rec.id)?.status === "done", 3000);
+
+      const repoDir = join(destDir, "models--org--Name");
+      const blob = join(repoDir, "blobs", etag);
+      const snap = join(repoDir, "snapshots", commit, "model.gguf");
+
+      expect(await Bun.file(blob).exists()).toBe(true);
+      expect(mgr.get(rec.id)?.destPath).toBe(snap);
+      // The snapshot path is a symlink resolving to the blob content.
+      expect(new Uint8Array(await readFile(snap))).toEqual(body);
+      // refs/main points at the commit.
+      expect((await readFile(join(repoDir, "refs", "main"), "utf8")).trim()).toBe(commit);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("fires onComplete and auto-clears the finished entry", async () => {
     const body = new TextEncoder().encode("done!");
     const server = Bun.serve({
@@ -81,20 +122,20 @@ describe("DownloadManager", () => {
       },
     });
     try {
-      let completed: string | null = null;
+      const completedIds: string[] = [];
       const mgr = new DownloadManager({
         destDir: () => destDir,
         getToken: () => null,
         urlFor: () => `http://127.0.0.1:${server.port}/file`,
         onComplete: (d) => {
-          completed = d.id;
+          completedIds.push(d.id);
         },
         clearAfterMs: 80,
       });
 
       const rec = mgr.start("org/repo", "m.gguf");
       await until(() => mgr.get(rec.id)?.status === "done");
-      expect(completed).toBe(rec.id); // onComplete fired with the finished download
+      expect(completedIds).toContain(rec.id); // onComplete fired with the finished download
 
       // The finished entry is dropped from list() after the grace period.
       await until(() => mgr.get(rec.id) === undefined, 2000);

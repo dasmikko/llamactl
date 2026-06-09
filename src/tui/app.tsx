@@ -19,8 +19,9 @@ import { HelpOverlay } from "./HelpOverlay.tsx";
 import { Filter } from "./Filter.tsx";
 import { HfBrowser } from "./HfBrowser.tsx";
 import { Downloads } from "./Downloads.tsx";
+import { ModelInfo } from "./ModelInfo.tsx";
 
-type Mode = "table" | "edit" | "logs" | "help" | "filter" | "hf";
+type Mode = "table" | "edit" | "logs" | "help" | "filter" | "hf" | "info";
 
 /** Editor invocation context: are we creating a fresh profile or editing one? */
 interface EditorState {
@@ -30,6 +31,12 @@ interface EditorState {
   /** Instance id to PUT, or null to POST a new instance. */
   instanceId: string | null;
 }
+
+/** A destructive action armed and awaiting confirmation. */
+type PendingAction =
+  | { kind: "delete-instance"; id: string; label: string }
+  | { kind: "delete-model"; id: string; label: string }
+  | null;
 
 interface AppProps {
   config: Config;
@@ -71,6 +78,7 @@ function App({ config }: AppProps): React.ReactElement {
     createInstance,
     updateInstance,
     removeInstance,
+    deleteModel,
     searchHf,
     listHfFiles,
     pull,
@@ -83,7 +91,8 @@ function App({ config }: AppProps): React.ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // A pending destructive action awaiting confirmation (repeat the key or `y`).
+  const [pending, setPending] = useState<PendingAction>(null);
   // A periodic "now" so uptime ticks even between data changes.
   const [now, setNow] = useState(() => Date.now());
 
@@ -125,9 +134,9 @@ function App({ config }: AppProps): React.ReactElement {
     setSelectedId(rows[clamped]!.modelId);
   };
 
-  // Cancelling delete confirmation whenever selection or mode changes.
+  // Cancel any pending confirmation whenever the selection or mode changes.
   useEffect(() => {
-    setConfirmDelete(false);
+    setPending(null);
   }, [selIdx, mode]);
 
   const openEditor = (row: Row, asNew: boolean): void => {
@@ -237,22 +246,40 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
       if (input === "d") {
-        if (!current.instance) return;
-        if (confirmDelete) {
-          void removeInstance(current.instance.id);
-          setConfirmDelete(false);
-        } else {
-          setConfirmDelete(true);
+        if (pending?.kind === "delete-instance") {
+          void removeInstance(pending.id);
+          setPending(null);
+        } else if (current.instance) {
+          setPending({ kind: "delete-instance", id: current.instance.id, label: current.instance.name });
         }
         return;
       }
-      if (input === "y" && confirmDelete && current.instance) {
-        void removeInstance(current.instance.id);
-        setConfirmDelete(false);
+      if (input === "D") {
+        // Delete the model's file(s) from disk — refused while it's running.
+        if (pending?.kind === "delete-model") {
+          void deleteModel(pending.id);
+          setPending(null);
+        } else if (current.model && !current.running) {
+          setPending({ kind: "delete-model", id: current.model.id, label: current.name });
+        }
+        return;
+      }
+      if (input === "y" && pending) {
+        if (pending.kind === "delete-instance") void removeInstance(pending.id);
+        else void deleteModel(pending.id);
+        setPending(null);
+        return;
+      }
+      if (key.escape && pending) {
+        setPending(null);
         return;
       }
       if (input === "l") {
         if (current.running) setMode("logs");
+        return;
+      }
+      if (input === "i") {
+        setMode("info");
         return;
       }
       if (input === "/") {
@@ -312,6 +339,8 @@ function App({ config }: AppProps): React.ReactElement {
           />
         ) : mode === "help" ? (
           <HelpView onClose={() => setMode("table")} />
+        ) : mode === "info" && current ? (
+          <InfoView row={current} now={now} onClose={() => setMode("table")} />
         ) : mode === "hf" ? (
           <HfBrowser
             searchHf={searchHf}
@@ -363,7 +392,7 @@ function App({ config }: AppProps): React.ReactElement {
           }}
         />
       ) : mode === "table" ? (
-        <StatusBar row={current} confirmDelete={confirmDelete} filter={filter} />
+        <StatusBar pending={pending} filter={filter} />
       ) : null}
     </Box>
   );
@@ -377,6 +406,22 @@ function HelpView({ onClose }: { onClose: () => void }): React.ReactElement {
   return <HelpOverlay />;
 }
 
+/** Model-details modal wrapper that owns its own Esc/i close handling. */
+function InfoView({
+  row,
+  now,
+  onClose,
+}: {
+  row: Row;
+  now: number;
+  onClose: () => void;
+}): React.ReactElement {
+  useInput((input, key) => {
+    if (key.escape || input === "i" || input === "q") onClose();
+  });
+  return <ModelInfo row={row} now={now} />;
+}
+
 /** Minimal input handler used only on the connection-error screen. */
 function QuitOnly({ onQuit }: { onQuit: () => void }): React.ReactElement {
   useInput((input, key) => {
@@ -386,28 +431,27 @@ function QuitOnly({ onQuit }: { onQuit: () => void }): React.ReactElement {
 }
 
 interface StatusBarProps {
-  row: Row | undefined;
-  confirmDelete: boolean;
+  pending: PendingAction;
   filter: string;
 }
 
-function StatusBar({
-  row,
-  confirmDelete,
-  filter,
-}: StatusBarProps): React.ReactElement {
-  if (confirmDelete && row?.instance) {
+function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
+  if (pending) {
+    const what =
+      pending.kind === "delete-instance"
+        ? `profile "${pending.label}"`
+        : `model "${pending.label}" FROM DISK`;
+    const key = pending.kind === "delete-instance" ? "d" : "D";
     return (
       <Box>
         <Text color="red">
-          Delete profile "{row.instance.name}"? Press d or y to confirm, Esc to
-          cancel.
+          Delete {what}? Press {key} or y to confirm, Esc to cancel.
         </Text>
       </Box>
     );
   }
   const hint =
-    "Enter start/stop · e edit · n new · d del · l logs · p pull · / filter · ? help · q quit";
+    "Enter start/stop · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>

@@ -55,6 +55,7 @@ export function validateSpec(spec: LaunchSpec): void {
   };
   posInt(spec.ctxSize, "ctxSize");
   posInt(spec.gpuLayers, "gpuLayers");
+  posInt(spec.nCpuMoe, "nCpuMoe");
   posInt(spec.threads, "threads");
   posInt(spec.batchSize, "batchSize");
   if (spec.port !== undefined) {
@@ -108,6 +109,7 @@ export function specToArgs(opts: {
 
   if (spec.ctxSize !== undefined) args.push("--ctx-size", String(spec.ctxSize));
   if (spec.gpuLayers !== undefined) args.push("--gpu-layers", String(spec.gpuLayers));
+  if (spec.nCpuMoe !== undefined) args.push("--n-cpu-moe", String(spec.nCpuMoe));
   if (spec.threads !== undefined) args.push("--threads", String(spec.threads));
   if (spec.batchSize !== undefined) args.push("--batch-size", String(spec.batchSize));
   // Recent llama.cpp takes a value: `--flash-attn on|off|auto`. Emit on/off when

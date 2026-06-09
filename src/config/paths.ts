@@ -67,16 +67,13 @@ export function logsDir(): string {
   return join(cacheDir(), "logs");
 }
 
-/** Default directory for models downloaded from Hugging Face. */
-export function downloadDir(): string {
-  return join(cacheDir(), "models");
-}
-
-/** Default model-cache directories scanned during discovery (Phase 2). */
+/** Default model-cache directories scanned during discovery. */
 export function defaultModelDirs(): string[] {
   const home = homedir();
+  // Honor HF_HOME so the Hugging Face cache is found wherever the user put it.
+  const hfHome = env("HF_HOME") ?? join(home, ".cache", "huggingface");
   return [
-    join(home, ".cache", "huggingface"),
+    hfHome,
     join(home, ".ollama", "models"),
     join(home, ".lmstudio", "models"),
   ];

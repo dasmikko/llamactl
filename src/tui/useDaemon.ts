@@ -54,6 +54,8 @@ export interface UseDaemon {
     patch: { name?: string; spec?: LaunchSpec },
   ): Promise<void>;
   removeInstance(id: string): Promise<void>;
+  /** Delete a model's file(s) from disk. */
+  deleteModel(id: string): Promise<void>;
   /** Search Hugging Face; returns repos directly (not stored in state). */
   searchHf(query: string): Promise<HfRepo[]>;
   /** List the GGUF files in a repo. */
@@ -216,6 +218,14 @@ export function useDaemon(config: Config): UseDaemon {
     [runMutation],
   );
 
+  const deleteModel = useCallback(
+    (id: string) =>
+      runMutation((conn) =>
+        conn.request<{ ok: true }>("DELETE", `/models/${encodeURIComponent(id)}`),
+      ),
+    [runMutation],
+  );
+
   const searchHf = useCallback(async (query: string): Promise<HfRepo[]> => {
     const conn = connRef.current;
     if (!conn) throw new Error("not connected to the daemon");
@@ -269,6 +279,7 @@ export function useDaemon(config: Config): UseDaemon {
     createInstance,
     updateInstance,
     removeInstance,
+    deleteModel,
     searchHf,
     listHfFiles,
     pull,

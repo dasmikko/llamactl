@@ -6,7 +6,8 @@
  */
 
 import type { Config } from "../types.ts";
-import { configPath, downloadDir as defaultDownloadDir } from "./paths.ts";
+import { configPath } from "./paths.ts";
+import { hfHubCacheDir } from "../hf/cache.ts";
 
 export const CONTROL_PORT_DEFAULT = 48134;
 /** Offload all layers to the GPU by default; override per-spec for CPU/partial. */
@@ -21,7 +22,7 @@ export function defaultConfig(): Config {
     defaultCtx: 4096,
     defaultGpuLayers: DEFAULT_GPU_LAYERS,
     llamaServerArgs: [],
-    downloadDir: defaultDownloadDir(),
+    downloadDir: hfHubCacheDir(),
     hfToken: null,
   };
 }

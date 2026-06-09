@@ -21,6 +21,7 @@ import {
   cmdPs,
   cmdPull,
   cmdRecommend,
+  cmdRm,
   cmdSearch,
   cmdStart,
   cmdStop,
@@ -43,6 +44,7 @@ Commands:
   start <model>        Start a model (auto-starts the daemon if needed)
   start --instance <id>  Start a saved instance profile
   stop <model>         Stop a running model
+  rm <model> --yes     Delete a model's file(s) from disk
   ps                   Show running models (port, pid, uptime)
   instance ls|add|rm|edit   Manage saved launch profiles
   search <query>       Search Hugging Face for GGUF models
@@ -57,6 +59,7 @@ Options:
   --json               Machine-readable JSON output, nothing else
   --ctx <n>            Context size (--ctx-size)
   --ngl <n>            GPU layers to offload (--gpu-layers)
+  --n-cpu-moe <n>      Keep first N layers' MoE expert weights on CPU
   --threads <n>        CPU threads
   --batch-size <n>     Batch size
   --flash-attn         Enable flash attention (--no-flash-attn to disable)
@@ -141,6 +144,8 @@ async function main(): Promise<number> {
         return await cmdStart(a, config, mode);
       case "stop":
         return await cmdStop(a, config, mode);
+      case "rm":
+        return await cmdRm(a, config, mode);
       case "ps":
         return await cmdPs(config, mode);
       case "instance":

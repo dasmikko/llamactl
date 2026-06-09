@@ -77,10 +77,17 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
 - **Hugging Face:** the daemon owns a `DownloadManager` (`src/hf/download.ts`,
   background streaming downloads with progress/cancel/shard-expansion) and an HF
   API client (`src/hf/client.ts`). Control plane: `/hf/search`, `/hf/files`,
-  `/pull`, `/downloads`, `/downloads/:id/cancel`. Files land in `config.downloadDir`
-  (a scanned + watched root via `modelScanPaths`), so a finished download appears
-  in discovery automatically. Token resolves from `config.hfToken` else the HF CLI
-  cache. TUI: `p` opens `HfBrowser`; progress shows in `Downloads.tsx`.
+  `/pull`, `/downloads`, `/downloads/:id/cancel`. **Downloads use the standard HF
+  Hub cache layout** (`src/hf/cache.ts`: `models--<org>--<name>/{blobs,snapshots,refs}`
+  under `config.downloadDir` = `hfHubCacheDir()`), so they're shared with llama.cpp's
+  `-hf` (`llama-server --cache-list` sees them) and blobs already cached aren't
+  re-downloaded. The `run()` reads `X-Repo-Commit`/`X-Linked-Etag` from a
+  `redirect:"manual"` metadata request, writes `blobs/<etag>`, symlinks
+  `snapshots/<commit>/<file>` → blob, writes `refs/<rev>`; a flat fallback kicks in
+  when those headers are absent (local-server tests). `onComplete` → the daemon
+  re-discovers so the model appears; finished entries auto-clear after a grace
+  period. Token resolves from `config.hfToken` else the HF CLI cache. TUI: `p`
+  opens `HfBrowser`; progress shows in `Downloads.tsx`.
 - **Stats:** the daemon samples on an interval and serves a cached `StatsSnapshot`
   at `GET /stats`; the TUI polls it (alongside `/downloads`). CPU% is delta-based (first tick reads 0).
   All cross-sample state lives in `src/monitor/sampler.ts`; `proc.ts`/`nvidia.ts`
