@@ -9,9 +9,6 @@ Guidance for working in this repo. Read this first.
 per-model launch-flag profiles, runs instances via a background daemon, and shows
 live CPU / RAM / GPU / VRAM (+ temperatures). There is also a full headless CLI.
 
-It was rebooted from a prior project ("bunstash") that still lives in the initial
-git commit; the OpenAI reverse proxy from that project was deliberately dropped.
-
 ## Commands
 
 ```sh
