@@ -7,6 +7,8 @@ llamactl discovers the GGUF models you already have cached, lets you set and sav
 `llama-server` flags per model, runs instances in the background via a small daemon
 (so the UI doesn't have to stay open), and shows live CPU / RAM / GPU / VRAM usage.
 
+![llamactl — resource gauges with temperatures, active instances, and the GGUF model catalog](screenshot.png)
+
 - **TUI** — a full-screen view with live CPU / RAM / GPU / VRAM gauges (and
   temperatures), an **Active instances** list above a **Models** catalog, an
   interactive flag editor, a log tail, and **Hugging Face search + download**.
