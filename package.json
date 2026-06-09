@@ -1,0 +1,21 @@
+{
+  "name": "bunstash",
+  "version": "0.1.0",
+  "description": "A fast, terminal-native launcher for local LLMs running via llama-server.",
+  "type": "module",
+  "module": "src/index.ts",
+  "bin": {
+    "bunstash": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "build": "bun build --compile --outfile bunstash src/index.ts",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

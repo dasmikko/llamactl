@@ -1,0 +1,71 @@
+/**
+ * Typed, actionable errors. Every failure that crosses a module boundary or
+ * reaches the user is a BunstashError with a stable ErrorCode, so the CLI can
+ * render it and the control plane / proxy can serialize it consistently.
+ */
+
+import type { ApiError, ErrorCode } from "./types.ts";
+
+export class BunstashError extends Error {
+  readonly code: ErrorCode;
+  readonly detail?: unknown;
+  /** Suggested HTTP status when surfaced over the control plane / proxy. */
+  readonly httpStatus: number;
+
+  constructor(code: ErrorCode, message: string, opts?: { detail?: unknown; httpStatus?: number }) {
+    super(message);
+    this.name = "BunstashError";
+    this.code = code;
+    this.detail = opts?.detail;
+    this.httpStatus = opts?.httpStatus ?? defaultStatus(code);
+  }
+
+  /** Serialize to the standard API error envelope. */
+  toApiError(): ApiError {
+    return {
+      error: {
+        code: this.code,
+        message: this.message,
+        ...(this.detail !== undefined ? { detail: this.detail } : {}),
+      },
+    };
+  }
+}
+
+function defaultStatus(code: ErrorCode): number {
+  switch (code) {
+    case "unauthorized":
+      return 401;
+    case "bad_request":
+      return 400;
+    case "not_found":
+    case "model_not_found":
+    case "not_running":
+      return 404;
+    case "ambiguous_model":
+      return 409;
+    case "already_running":
+      return 409;
+    case "daemon_unreachable":
+      return 503;
+    case "launch_failed":
+    case "restart_cap_exceeded":
+    case "llama_server_missing":
+    case "internal":
+      return 500;
+    default:
+      return 500;
+  }
+}
+
+/** Narrowing helper. */
+export function isBunstashError(e: unknown): e is BunstashError {
+  return e instanceof BunstashError;
+}
+
+/** Coerce any thrown value into a BunstashError (defaults to "internal"). */
+export function toBunstashError(e: unknown): BunstashError {
+  if (isBunstashError(e)) return e;
+  if (e instanceof Error) return new BunstashError("internal", e.message);
+  return new BunstashError("internal", String(e));
+}

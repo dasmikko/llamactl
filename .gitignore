@@ -1,0 +1,4 @@
+node_modules/
+# Compiled single-file executable
+/bunstash
+*.log

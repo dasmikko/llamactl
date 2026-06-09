@@ -1,0 +1,282 @@
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+import type { Config, Model, ModelResolver } from "../src/types.ts";
+import { BunstashError, isBunstashError } from "../src/errors.ts";
+import { Supervisor, type SupervisorOptions } from "../src/supervisor/process.ts";
+
+const FAKE_SERVER = resolve(import.meta.dir, "helpers/fake-llama-server.ts");
+
+const FAKE_ENV_KEYS = [
+  "FAKE_READY_DELAY_MS",
+  "FAKE_CRASH_AFTER_MS",
+  "FAKE_FAIL_START",
+  "FAKE_MODEL",
+] as const;
+
+function makeModel(overrides: Partial<Model> = {}): Model {
+  return {
+    id: "test-model",
+    name: "Test Model",
+    path: "/dummy/path/model.gguf",
+    sizeBytes: 1234,
+    quant: "Q4_K_M",
+    source: "config",
+    mtimeMs: 0,
+    ...overrides,
+  };
+}
+
+/** A stub resolver that returns a fixed Model for any selector matching its id. */
+function makeResolver(model: Model): ModelResolver {
+  return {
+    resolve(selector: string): Model {
+      if (selector === model.id || selector === model.name) return model;
+      throw new BunstashError("model_not_found", `no model for "${selector}"`);
+    },
+    all: () => [model],
+  };
+}
+
+function makeConfig(overrides: Partial<Config> = {}): Config {
+  return {
+    modelPaths: [],
+    controlPort: 48134,
+    proxy: { host: "127.0.0.1", port: 11435 },
+    llamaServerPath: null,
+    defaultCtx: 2048,
+    ollamaCompat: false,
+    fallbackEnabled: false,
+    llamaServerArgs: [],
+    ...overrides,
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Poll `fn` until it returns true or the timeout elapses. */
+async function waitFor(
+  fn: () => boolean | Promise<boolean>,
+  timeoutMs: number,
+  stepMs = 50,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await fn()) return true;
+    await delay(stepMs);
+  }
+  return false;
+}
+
+let logsDir: string;
+let supervisors: Supervisor[] = [];
+
+function newSupervisor(opts: Partial<SupervisorOptions> = {}): Supervisor {
+  const model = opts.resolver ? undefined : makeModel();
+  const sup = new Supervisor({
+    config: opts.config ?? makeConfig(),
+    resolver: opts.resolver ?? makeResolver(model!),
+    logsDir,
+    llamaServerPath: FAKE_SERVER,
+    spawnPrefix: [process.execPath],
+    portBase: 18500,
+    ...opts,
+  });
+  supervisors.push(sup);
+  return sup;
+}
+
+beforeEach(async () => {
+  logsDir = await mkdtemp(join(tmpdir(), "bunstash-sup-"));
+});
+
+afterEach(async () => {
+  for (const s of supervisors) {
+    try {
+      await s.shutdownAll();
+    } catch {
+      /* ignore */
+    }
+  }
+  supervisors = [];
+  for (const k of FAKE_ENV_KEYS) delete process.env[k];
+  await rm(logsDir, { recursive: true, force: true });
+});
+
+describe("Supervisor", () => {
+  test("ready path: ensureReady reaches status ready and /health is 200", async () => {
+    const sup = newSupervisor();
+    const rm0 = await sup.ensureReady("test-model");
+    expect(rm0.status).toBe("ready");
+
+    const res = await fetch(`http://127.0.0.1:${rm0.port}/health`);
+    expect(res.status).toBe(200);
+    await res.json();
+
+    expect(sup.get("test-model")?.status).toBe("ready");
+  }, 15000);
+
+  test("readiness delay: ensureReady waits for /health to flip", async () => {
+    process.env.FAKE_READY_DELAY_MS = "400";
+    const sup = newSupervisor({ readinessTimeoutMs: 10000 });
+
+    const started = await sup.start("test-model");
+    expect(started.status).toBe("starting");
+
+    const ready = await sup.ensureReady("test-model");
+    expect(ready.status).toBe("ready");
+  }, 15000);
+
+  test("already_running: second start of the same model throws", async () => {
+    const sup = newSupervisor();
+    await sup.start("test-model");
+
+    let err: unknown;
+    try {
+      await sup.start("test-model");
+    } catch (e) {
+      err = e;
+    }
+    expect(isBunstashError(err)).toBe(true);
+    expect((err as BunstashError).code).toBe("already_running");
+  }, 15000);
+
+  test("stop: removes the child and frees the port; second stop throws not_running", async () => {
+    const sup = newSupervisor();
+    const ready = await sup.ensureReady("test-model");
+    const port = ready.port;
+
+    const stopped = await sup.stop("test-model");
+    expect(stopped.modelId).toBe("test-model");
+    expect(sup.list().some((m) => m.modelId === "test-model")).toBe(false);
+
+    // The port should stop accepting connections once the child is gone.
+    const portClosed = await waitFor(async () => {
+      try {
+        await fetch(`http://127.0.0.1:${port}/health`);
+        return false;
+      } catch {
+        return true;
+      }
+    }, 5000);
+    expect(portClosed).toBe(true);
+
+    let err: unknown;
+    try {
+      await sup.stop("test-model");
+    } catch (e) {
+      err = e;
+    }
+    expect(isBunstashError(err)).toBe(true);
+    expect((err as BunstashError).code).toBe("not_running");
+  }, 15000);
+
+  test("launch fail: ensureReady rejects with a BunstashError and leaves nothing running", async () => {
+    process.env.FAKE_FAIL_START = "1";
+    const sup = newSupervisor({
+      retryCap: 1,
+      retryWindowMs: 60000,
+      readinessTimeoutMs: 8000,
+    });
+
+    let err: unknown;
+    try {
+      await sup.ensureReady("test-model");
+    } catch (e) {
+      err = e;
+    }
+    expect(isBunstashError(err)).toBe(true);
+    const code = (err as BunstashError).code;
+    expect(["launch_failed", "restart_cap_exceeded"]).toContain(code);
+
+    // No healthy/ready child should be left behind.
+    const left = sup.get("test-model");
+    if (left) {
+      expect(left.status).not.toBe("ready");
+    }
+  }, 20000);
+
+  test("crash + cap: restarts stop at the cap and the entry ends crashed", async () => {
+    process.env.FAKE_CRASH_AFTER_MS = "150";
+    const sup = newSupervisor({
+      retryCap: 2,
+      retryWindowMs: 120000,
+      readinessTimeoutMs: 8000,
+    });
+
+    await sup.start("test-model");
+
+    // Poll until it settles into "crashed" (cap exceeded). Restarts must never
+    // grow beyond the cap.
+    let maxRestarts = 0;
+    const crashed = await waitFor(() => {
+      const m = sup.get("test-model");
+      if (m) maxRestarts = Math.max(maxRestarts, m.restarts);
+      return m?.status === "crashed";
+    }, 6000);
+
+    expect(crashed).toBe(true);
+    expect(maxRestarts).toBeLessThanOrEqual(2);
+    expect(sup.get("test-model")?.status).toBe("crashed");
+
+    // Give a moment to confirm restarts truly stopped growing.
+    const before = sup.get("test-model")?.restarts ?? 0;
+    await delay(1000);
+    const after = sup.get("test-model")?.restarts ?? 0;
+    expect(after).toBe(before);
+    expect(after).toBeLessThanOrEqual(2);
+  }, 15000);
+
+  test("crash + cap via ensureReady throws restart_cap_exceeded", async () => {
+    // Crash before the server ever reports ready, so ensureReady can never
+    // succeed and must surface the restart-cap failure instead.
+    process.env.FAKE_CRASH_AFTER_MS = "150";
+    process.env.FAKE_READY_DELAY_MS = "100000";
+    const sup = newSupervisor({
+      retryCap: 1,
+      retryWindowMs: 120000,
+      readinessTimeoutMs: 10000,
+    });
+
+    let err: unknown;
+    try {
+      await sup.ensureReady("test-model");
+    } catch (e) {
+      err = e;
+    }
+    expect(isBunstashError(err)).toBe(true);
+    expect(["restart_cap_exceeded", "launch_failed"]).toContain(
+      (err as BunstashError).code,
+    );
+  }, 15000);
+
+  test("llama_server_missing: a non-existent binary path throws on start", async () => {
+    const sup = newSupervisor({
+      llamaServerPath: "/nonexistent/path/to/llama-server",
+    });
+    let err: unknown;
+    try {
+      await sup.start("test-model");
+    } catch (e) {
+      err = e;
+    }
+    expect(isBunstashError(err)).toBe(true);
+    expect((err as BunstashError).code).toBe("llama_server_missing");
+  }, 15000);
+
+  test("model_not_found propagates from the resolver", async () => {
+    const sup = newSupervisor();
+    let err: unknown;
+    try {
+      await sup.start("does-not-exist");
+    } catch (e) {
+      err = e;
+    }
+    expect(isBunstashError(err)).toBe(true);
+    expect((err as BunstashError).code).toBe("model_not_found");
+  }, 15000);
+});
