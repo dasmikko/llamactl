@@ -36,6 +36,7 @@ interface EditorState {
 
 /** A destructive action armed and awaiting confirmation. */
 type PendingAction =
+  | { kind: "stop-instance"; id: string; label: string }
   | { kind: "delete-instance"; id: string; label: string }
   | { kind: "delete-model"; id: string; label: string }
   | null;
@@ -236,7 +237,19 @@ function App({ config }: AppProps): React.ReactElement {
       }
 
       if (key.return) {
-        onToggleRow(current);
+        if (!current.running) onToggleRow(current);
+        return;
+      }
+      if (key.ctrl && input === "s") {
+        // Ctrl+S: stop a running instance (requires confirmation).
+        if (current.running) {
+          if (pending?.kind === "stop-instance") {
+            void stop(pending.id);
+            setPending(null);
+          } else {
+            setPending({ kind: "stop-instance", id: current.modelId, label: current.name });
+          }
+        }
         return;
       }
       if (input === "e") {
@@ -267,7 +280,8 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
       if (input === "y" && pending) {
-        if (pending.kind === "delete-instance") void removeInstance(pending.id);
+        if (pending.kind === "stop-instance") void stop(pending.id);
+        else if (pending.kind === "delete-instance") void removeInstance(pending.id);
         else void deleteModel(pending.id);
         setPending(null);
         return;
@@ -451,6 +465,15 @@ interface StatusBarProps {
 
 function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
   if (pending) {
+    if (pending.kind === "stop-instance") {
+      return (
+        <Box>
+          <Text color="red">
+            Stop "{pending.label}"? Press Ctrl+S or y to confirm, Esc to cancel.
+          </Text>
+        </Box>
+      );
+    }
     const what =
       pending.kind === "delete-instance"
         ? `profile "${pending.label}"`
@@ -465,7 +488,7 @@ function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
     );
   }
   const hint =
-    "Enter start/stop · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
+     "Enter start · Ctrl+S stop · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>
