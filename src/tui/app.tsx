@@ -20,6 +20,7 @@ import { Filter } from "./Filter.tsx";
 import { HfBrowser } from "./HfBrowser.tsx";
 import { Downloads } from "./Downloads.tsx";
 import { ModelInfo } from "./ModelInfo.tsx";
+import { openInBrowser } from "./browser.ts";
 
 type Mode = "table" | "edit" | "logs" | "help" | "filter" | "hf" | "info";
 
@@ -282,6 +283,11 @@ function App({ config }: AppProps): React.ReactElement {
         setMode("info");
         return;
       }
+      if (input === "o") {
+        // Open the running instance's llama-server web UI in the browser.
+        if (current.running) openInBrowser(`http://127.0.0.1:${current.running.port}`);
+        return;
+      }
       if (input === "/") {
         setMode("filter");
         return;
@@ -451,7 +457,7 @@ function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
     );
   }
   const hint =
-    "Enter start/stop · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
+    "Enter start/stop · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>

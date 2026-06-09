@@ -22,6 +22,7 @@ const BINDINGS: Binding[] = [
   { keys: "d", desc: "delete the selected instance profile (press again / y to confirm)" },
   { keys: "D", desc: "delete the model file(s) from disk (confirm; stop it first)" },
   { keys: "l", desc: "view logs of a running row" },
+  { keys: "o", desc: "open a running instance's web UI in the browser" },
   { keys: "p", desc: "pull a model from Hugging Face (search / browse)" },
   { keys: "/", desc: "filter the list" },
   { keys: "?", desc: "toggle this help" },

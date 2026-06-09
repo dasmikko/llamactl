@@ -65,6 +65,7 @@ A model moves between the two lists as you start/stop it, and the cursor follows
 | --- | --- |
 | `j`/`k`, ↓/↑ | Move selection (`g`/`G` jump to top/bottom) |
 | `Enter` | Start the selected model / profile (or stop it if running) |
+| `o` | Open a running instance's web UI in the browser |
 | `i` | Show full details about the selected model (path, arch, context, spec, live stats) |
 | `e` | Edit launch flags for the selected row |
 | `n` | Create a new saved instance profile |
