@@ -124,6 +124,13 @@ describe("Supervisor", () => {
     expect(sup.get("test-model")?.status).toBe("ready");
   }, 15000);
 
+  test("llamaServerVersion: detected from `--version` and stamped on the running model", async () => {
+    const sup = newSupervisor();
+    const rm0 = await sup.start({ model: "test-model" });
+    expect(rm0.llamaServerVersion).toBe("9999 (fake-llama)");
+    expect(sup.get("test-model")?.llamaServerVersion).toBe("9999 (fake-llama)");
+  }, 15000);
+
   test("start alone flips to ready in the background (no ensureReady call)", async () => {
     const sup = newSupervisor();
     const started = await sup.start({ model: "test-model" });

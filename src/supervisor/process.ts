@@ -77,6 +77,8 @@ export class Supervisor implements ISupervisor {
 
   private readonly children = new Map<string, Entry>();
   private shuttingDown = false;
+  /** Cached `llama-server --version` probe (the binary is the same every time). */
+  private versionProbe?: Promise<string | undefined>;
 
   constructor(opts: SupervisorOptions) {
     this.config = opts.config;
@@ -240,6 +242,45 @@ export class Supervisor implements ISupervisor {
     return findFreePort(this.portBase, host);
   }
 
+  /**
+   * Detect the `llama-server` version by running `--version` once and caching
+   * the result (the binary doesn't change between spawns). Resolves to a short
+   * version string (e.g. "5402 (a1b2c3d)") or undefined if it can't be read.
+   */
+  private detectVersion(): Promise<string | undefined> {
+    if (!this.versionProbe) this.versionProbe = this.runVersionProbe();
+    return this.versionProbe;
+  }
+
+  private async runVersionProbe(): Promise<string | undefined> {
+    try {
+      const proc = Bun.spawn({
+        cmd: [...this.spawnPrefix, this.llamaServerPath, "--version"],
+        env: { ...process.env },
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "ignore",
+      });
+      // Guard against a binary that ignores --version and tries to serve forever.
+      const kill = setTimeout(() => {
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, 5000);
+      const [out, err] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      await proc.exited;
+      clearTimeout(kill);
+      return parseVersion(out + err);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Spawn a child for `model`, wire up the exit handler, return the Entry. */
   private async spawnChild(model: Model, spec: LaunchSpec): Promise<Entry> {
     const port = await this.allocatePort(spec);
@@ -281,6 +322,7 @@ export class Supervisor implements ISupervisor {
       restarts: 0,
       logPath,
       spec,
+      llamaServerVersion: await this.detectVersion(),
     };
 
     const entry: Entry = {
@@ -469,4 +511,19 @@ export class Supervisor implements ISupervisor {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Extract a version from `llama-server --version` output. llama.cpp prints a
+ * `version: <build> (<commit>)` line (to stderr); prefer that, else fall back to
+ * the first non-empty line. Returns undefined when nothing usable is found.
+ */
+function parseVersion(text: string): string | undefined {
+  const tagged = text.match(/^\s*version:\s*(.+?)\s*$/im);
+  if (tagged?.[1]) return tagged[1].trim();
+  const firstLine = text
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  return firstLine || undefined;
 }

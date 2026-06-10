@@ -141,6 +141,12 @@ if (import.meta.main) {
     process.exit(1);
   }
 
+  // Mimic `llama-server --version` (prints to stderr like llama.cpp, then exits).
+  if (process.argv.slice(2).includes("--version")) {
+    process.stderr.write("version: 9999 (fake-llama)\nbuilt with fake cc for test\n");
+    process.exit(0);
+  }
+
   // Parse `--port N` out of the llama-server-style argv; ignore everything else.
   let port = 0;
   const argv = process.argv.slice(2);

@@ -117,6 +117,8 @@ export interface RunningModel {
   logPath: string;
   /** The resolved spec the child was launched with (for display/edit). */
   spec: LaunchSpec;
+  /** Version string of the `llama-server` binary, if it could be detected. */
+  llamaServerVersion?: string;
 }
 
 /** Fully-resolved runtime configuration (defaults → file → env → flags). */
