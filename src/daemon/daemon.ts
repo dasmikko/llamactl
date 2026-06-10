@@ -10,6 +10,7 @@ import { discoverModels, resolveModel, watchModels } from "../discovery/models.t
 import { Supervisor } from "../supervisor/process.ts";
 import { Sampler } from "../monitor/sampler.ts";
 import { loadInstanceStore } from "../instances/store.ts";
+import { loadFavoriteStore } from "../favorites/store.ts";
 import { DownloadManager } from "../hf/download.ts";
 import { readHfTokenFromCache } from "../hf/client.ts";
 import { startControlPlane } from "./controlplane.ts";
@@ -67,6 +68,7 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
   });
 
   const instances = await loadInstanceStore();
+  const favorites = await loadFavoriteStore();
   const sampler = new Sampler({ supervisor });
   sampler.start();
 
@@ -90,6 +92,7 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
     token,
     supervisor,
     instances,
+    favorites,
     sampler,
     downloads,
     getHfToken,

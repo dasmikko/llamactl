@@ -18,6 +18,7 @@ const BINDINGS: Binding[] = [
   { keys: "Enter", desc: "start the selected model" },
   { keys: "Ctrl+S", desc: "stop a running instance (confirm with Ctrl+S or y)" },
   { keys: "i", desc: "show full details about the selected model" },
+  { keys: "f", desc: "toggle favorite (★ — keeps the model at the top of the list)" },
   { keys: "e", desc: "edit the selected row's launch flags" },
   { keys: "n", desc: "new instance profile for the selected model" },
   { keys: "d", desc: "delete the selected instance profile (press again / y to confirm)" },

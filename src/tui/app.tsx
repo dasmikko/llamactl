@@ -72,6 +72,7 @@ function App({ config }: AppProps): React.ReactElement {
   const {
     models,
     instances,
+    favorites,
     running,
     stats,
     llamaServer,
@@ -84,6 +85,7 @@ function App({ config }: AppProps): React.ReactElement {
     createInstance,
     updateInstance,
     removeInstance,
+    toggleFavorite,
     deleteModel,
     searchHf,
     listHfFiles,
@@ -107,9 +109,10 @@ function App({ config }: AppProps): React.ReactElement {
     return () => clearInterval(t);
   }, []);
 
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const allRows = useMemo(
-    () => buildRows(models, instances, running, stats),
-    [models, instances, running, stats],
+    () => buildRows(models, instances, running, stats, favoriteSet),
+    [models, instances, running, stats, favoriteSet],
   );
   const rows = useMemo(() => filterRows(allRows, filter), [allRows, filter]);
   // Split into the running ("active instances") group and everything else. The
@@ -256,6 +259,10 @@ function App({ config }: AppProps): React.ReactElement {
             setPending({ kind: "stop-instance", id: current.modelId, label: current.name });
           }
         }
+        return;
+      }
+      if (input === "f") {
+        void toggleFavorite(current.modelId);
         return;
       }
       if (input === "e") {
@@ -524,7 +531,7 @@ function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
     );
   }
   const hint =
-     "Enter start · Ctrl+S stop · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
+     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>

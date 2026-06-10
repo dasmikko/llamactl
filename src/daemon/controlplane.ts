@@ -8,6 +8,8 @@
 import type {
   Download,
   DownloadsResponse,
+  FavoriteStore,
+  FavoritesResponse,
   HealthResponse,
   HfFilesResponse,
   HfSearchResponse,
@@ -42,6 +44,8 @@ export interface ControlPlaneOptions {
   supervisor: ISupervisor;
   /** Saved instance profiles (CRUD). */
   instances: InstanceStore;
+  /** Favorited row ids (starred models/profiles). */
+  favorites: FavoriteStore;
   /** Source of the latest resource snapshot. */
   sampler: StatsSource;
   /** Background Hugging Face downloads. */
@@ -229,6 +233,20 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
 
         if (path === "/instances" && req.method === "GET") {
           const body: InstancesResponse = { instances: opts.instances.list() };
+          return json(body);
+        }
+
+        if (path === "/favorites" && req.method === "GET") {
+          const body: FavoritesResponse = { favorites: opts.favorites.list() };
+          return json(body);
+        }
+
+        // POST /favorites/:id/toggle — flip a row's favorite state, return the new set.
+        const favToggleMatch = /^\/favorites\/(.+)\/toggle$/.exec(path);
+        if (favToggleMatch && req.method === "POST") {
+          const id = decodeURIComponent(favToggleMatch[1]!);
+          await opts.favorites.toggle(id);
+          const body: FavoritesResponse = { favorites: opts.favorites.list() };
           return json(body);
         }
 

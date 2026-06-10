@@ -18,6 +18,7 @@ import type {
   ModelsResponse,
   PsResponse,
   InstancesResponse,
+  FavoritesResponse,
   StatsResponse,
   Download,
   DownloadsResponse,
@@ -40,6 +41,8 @@ function errMessage(e: unknown): string {
 export interface UseDaemon {
   models: Model[];
   instances: InstanceConfig[];
+  /** Favorited row ids (starred models/profiles), floated to the top of the list. */
+  favorites: string[];
   running: RunningModel[];
   stats: StatsSnapshot | null;
   /** The llama-server binary the daemon will spawn (path / found / version). */
@@ -57,6 +60,8 @@ export interface UseDaemon {
     patch: { name?: string; spec?: LaunchSpec },
   ): Promise<void>;
   removeInstance(id: string): Promise<void>;
+  /** Toggle the starred/favorite state of a row by id. */
+  toggleFavorite(id: string): Promise<void>;
   /** Delete a model's file(s) from disk. */
   deleteModel(id: string): Promise<void>;
   /** Search Hugging Face; returns repos directly (not stored in state). */
@@ -76,6 +81,7 @@ export function useDaemon(config: Config): UseDaemon {
 
   const [models, setModels] = useState<Model[]>([]);
   const [instances, setInstances] = useState<InstanceConfig[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [running, setRunning] = useState<RunningModel[]>([]);
   const [stats, setStats] = useState<StatsSnapshot | null>(null);
   const [llamaServer, setLlamaServer] = useState<LlamaServerInfo | null>(null);
@@ -89,13 +95,15 @@ export function useDaemon(config: Config): UseDaemon {
     const conn = connRef.current;
     if (!conn) return;
     try {
-      const [m, inst] = await Promise.all([
+      const [m, inst, fav] = await Promise.all([
         conn.request<ModelsResponse>("GET", "/models"),
         conn.request<InstancesResponse>("GET", "/instances"),
+        conn.request<FavoritesResponse>("GET", "/favorites"),
       ]);
       if (!mountedRef.current) return;
       setModels(m.models);
       setInstances(inst.instances);
+      setFavorites(fav.favorites);
     } catch (e) {
       if (mountedRef.current) setError(errMessage(e));
     }
@@ -223,6 +231,17 @@ export function useDaemon(config: Config): UseDaemon {
     [runMutation],
   );
 
+  const toggleFavorite = useCallback(
+    (id: string) =>
+      runMutation((conn) =>
+        conn.request<FavoritesResponse>(
+          "POST",
+          `/favorites/${encodeURIComponent(id)}/toggle`,
+        ),
+      ),
+    [runMutation],
+  );
+
   const deleteModel = useCallback(
     (id: string) =>
       runMutation((conn) =>
@@ -273,6 +292,7 @@ export function useDaemon(config: Config): UseDaemon {
   return {
     models,
     instances,
+    favorites,
     running,
     stats,
     llamaServer,
@@ -285,6 +305,7 @@ export function useDaemon(config: Config): UseDaemon {
     createInstance,
     updateInstance,
     removeInstance,
+    toggleFavorite,
     deleteModel,
     searchHf,
     listHfFiles,

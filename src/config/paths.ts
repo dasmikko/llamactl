@@ -62,6 +62,11 @@ export function instancesPath(): string {
   return join(configDir(), "instances.json");
 }
 
+/** Absolute path to the favorited-models file. */
+export function favoritesPath(): string {
+  return join(configDir(), "favorites.json");
+}
+
 /** Directory holding per-launch logs. */
 export function logsDir(): string {
   return join(cacheDir(), "logs");

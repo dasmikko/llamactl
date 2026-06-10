@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type {
+  FavoriteStore,
   IDownloadManager,
   InstanceStore,
   ISupervisor,
@@ -72,6 +73,21 @@ function mockInstances(): InstanceStore {
   };
 }
 
+/** In-memory favorites store backed by a plain Set. */
+function mockFavorites(): FavoriteStore {
+  const ids = new Set<string>();
+  return {
+    list: () => [...ids].sort(),
+    has: (id) => ids.has(id),
+    toggle: async (id) => {
+      const now = !ids.has(id);
+      if (now) ids.add(id);
+      else ids.delete(id);
+      return now;
+    },
+  };
+}
+
 const EMPTY_SNAPSHOT: StatsSnapshot = {
   ts: 0,
   system: { cpuPct: 0, memUsed: 0, memTotal: 0, tempC: null },
@@ -127,6 +143,7 @@ beforeAll(async () => {
     token: TOKEN,
     supervisor: sup,
     instances: mockInstances(),
+    favorites: mockFavorites(),
     sampler: mockSampler,
     downloads: mockDownloads,
     getHfToken,
@@ -261,6 +278,24 @@ test("DELETE /models/:id for an unknown model => 404", async () => {
   expect(body.error.code).toBe("model_not_found");
 });
 
+test("GET /favorites starts empty; POST toggle adds then removes", async () => {
+  const auth = { authorization: `Bearer ${TOKEN}` };
+
+  const empty = await fetch(base() + "/favorites", { headers: auth });
+  expect(empty.status).toBe(200);
+  expect(((await empty.json()) as { favorites: string[] }).favorites).toEqual([]);
+
+  const on = await fetch(base() + "/favorites/alpha/toggle", { method: "POST", headers: auth });
+  expect(on.status).toBe(200);
+  expect(((await on.json()) as { favorites: string[] }).favorites).toEqual(["alpha"]);
+
+  const list = await fetch(base() + "/favorites", { headers: auth });
+  expect(((await list.json()) as { favorites: string[] }).favorites).toEqual(["alpha"]);
+
+  const off = await fetch(base() + "/favorites/alpha/toggle", { method: "POST", headers: auth });
+  expect(((await off.json()) as { favorites: string[] }).favorites).toEqual([]);
+});
+
 test("unknown route => 404 not_found", async () => {
   const res = await fetch(base() + "/nope", { headers: { authorization: `Bearer ${TOKEN}` } });
   expect(res.status).toBe(404);
@@ -275,6 +310,7 @@ test("control plane scans upward when its preferred port is taken", async () => 
       token: TOKEN,
       supervisor: mockSupervisor(),
       instances: mockInstances(),
+      favorites: mockFavorites(),
       sampler: mockSampler,
     downloads: mockDownloads,
     getHfToken,

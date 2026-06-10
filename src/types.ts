@@ -351,6 +351,11 @@ export interface InstancesResponse {
   instances: InstanceConfig[];
 }
 
+/** GET /favorites response — the set of favorited row ids (model or instance ids). */
+export interface FavoritesResponse {
+  favorites: string[];
+}
+
 /** Availability + version of the `llama-server` binary the daemon will spawn. */
 export interface LlamaServerInfo {
   /** Resolved path, or the bare command name the daemon will exec. */
@@ -467,4 +472,18 @@ export interface InstanceStore {
   update(id: string, patch: { name?: string; spec?: LaunchSpec }): Promise<InstanceConfig>;
   /** Remove a profile; throws LlamactlError("instance_not_found"). */
   remove(id: string): Promise<void>;
+}
+
+/**
+ * Persisted set of "favorited" rows, keyed by the row's id (a discovered
+ * model id, or an instance id for profile-only rows). Favorites float to the
+ * top of the list and are marked with a star in the TUI. Owned by the daemon.
+ */
+export interface FavoriteStore {
+  /** All favorited ids. */
+  list(): string[];
+  /** Whether `id` is favorited. */
+  has(id: string): boolean;
+  /** Flip `id`'s favorite state; returns the new state (true = now favorited). */
+  toggle(id: string): Promise<boolean>;
 }

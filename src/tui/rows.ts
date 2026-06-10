@@ -32,18 +32,22 @@ export interface Row {
   running: RunningModel | undefined;
   /** Per-instance stats, if running and sampled. */
   stats: InstanceStats | undefined;
+  /** Whether the user has starred this row (floats it to the top). */
+  isFavorite: boolean;
 }
 
 /**
  * Build the merged row list keyed by model id. Deterministic ordering:
- * running rows first, then rows with a saved instance, then discovered-only,
- * each group sorted by display name.
+ * running rows first, then favorites, then rows with a saved instance, then
+ * discovered-only, each group sorted by display name. `favorites` is the set
+ * of starred row ids (model or instance ids).
  */
 export function buildRows(
   models: Model[],
   instances: InstanceConfig[],
   running: RunningModel[],
   stats: StatsSnapshot | null,
+  favorites: ReadonlySet<string> = new Set(),
 ): Row[] {
   const modelById = new Map<string, Model>();
   for (const m of models) modelById.set(m.id, m);
@@ -106,13 +110,18 @@ export function buildRows(
       instance,
       running: run,
       stats: stat,
+      isFavorite: favorites.has(key),
     });
   }
 
+  // Ordering: running rows first (the ACTIVE INSTANCES section), then within the
+  // remaining catalog favorites float to the top, then saved profiles, then the
+  // rest — each group sorted by display name.
   const rank = (r: Row): number => {
     if (r.running) return 0;
-    if (r.instance) return 1;
-    return 2;
+    if (r.isFavorite) return 1;
+    if (r.instance) return 2;
+    return 3;
   };
   rows.sort((a, b) => {
     const ra = rank(a);

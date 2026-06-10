@@ -145,6 +145,11 @@ function pad(s: string, width: number, right: boolean): string {
   return right ? s.padStart(width) : s.padEnd(width);
 }
 
+/** Width of the leading star gutter (the star glyph + a trailing space). */
+const FAV_GUTTER = 2;
+/** Filled star for a favorited row; a space otherwise (keeps columns aligned). */
+const FAV_STAR = "★";
+
 function statusColor(row: Row): string | undefined {
   if (!row.running) return undefined;
   switch (row.running.status) {
@@ -179,17 +184,21 @@ function TableImpl({
   });
 
   // Stretch the NAME column so the row (and selection bar) fills the terminal.
+  // The leading star gutter eats FAV_GUTTER columns, so the NAME column gives
+  // those back to keep the row total exactly `width`.
   const cols = (() => {
     if (!width) return baseCols;
     const others = baseCols.reduce((s, c) => (c.header === "NAME" ? s : s + c.width), 0);
     const seps = baseCols.length - 1;
-    const nameWidth = Math.max(20, width - others - seps);
+    const nameWidth = Math.max(20, width - others - seps - FAV_GUTTER);
     return baseCols.map((c) => (c.header === "NAME" ? { ...c, width: nameWidth } : c));
   })();
 
-  const headerLine = cols
-    .map((c) => pad(c.header, c.width, c.alignRight ?? false))
-    .join(" ");
+  // Every row is prefixed with the star gutter; the header reserves the same
+  // blank space so the columns stay aligned underneath it.
+  const headerLine =
+    " ".repeat(FAV_GUTTER) +
+    cols.map((c) => pad(c.header, c.width, c.alignRight ?? false)).join(" ");
 
   // Window the rows when there are more than will fit, reserving one line for
   // the scroll indicator. The selected row stays in view (see windowSlice).
@@ -216,20 +225,25 @@ function TableImpl({
       ) : (
         visible.map((row, i) => {
           const selected = start + i === selectedIndex;
+          const star = row.isFavorite ? FAV_STAR : " ";
           const line = cols
             .map((c) => pad(c.get(row, now), c.width, c.alignRight ?? false))
             .join(" ");
+          // Selected rows invert the whole line (star included) so the highlight
+          // bar is unbroken; unselected rows color the star gold independently of
+          // the status color applied to the rest of the row.
           if (selected) {
             return (
               <Text key={row.modelId} inverse>
-                {line}
+                {star} {line}
               </Text>
             );
           }
           const sc = statusColor(row);
           return (
-            <Text key={row.modelId} color={sc}>
-              {line}
+            <Text key={row.modelId}>
+              <Text color="yellow">{star}</Text>{" "}
+              <Text color={sc}>{line}</Text>
             </Text>
           );
         })
