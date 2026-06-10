@@ -376,6 +376,9 @@ function App({ config }: AppProps): React.ReactElement {
             initialSpec={editor.initialSpec}
             onSubmit={onEditorSubmit}
             onCancel={onEditorCancel}
+            // In edit mode the body holds only the editor (no footer), so the
+            // header is all that sits above it.
+            availableHeight={screenRows - headerLines}
           />
         ) : mode === "logs" && current?.running ? (
           <LogViewer

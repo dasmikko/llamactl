@@ -9,6 +9,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { LaunchSpec } from "../types.ts";
 import { CACHE_TYPES } from "../instances/spec.ts";
+import { windowSlice } from "./Table.tsx";
 
 export interface FlagEditorResult {
   name: string | undefined;
@@ -22,6 +23,11 @@ export interface FlagEditorProps {
   initialSpec: LaunchSpec;
   onSubmit: (result: FlagEditorResult) => void;
   onCancel: () => void;
+  /**
+   * Total terminal lines available to the editor box. When the fields don't all
+   * fit the list windows around the focused field. Omit to render every field.
+   */
+  availableHeight?: number;
 }
 
 /**
@@ -96,6 +102,17 @@ const FIELDS: FieldDef[] = [
 
 type TextValues = Record<TextFieldId, string>;
 
+/** Text fields that accept digits only (mapped to numbers on submit). */
+const NUMERIC_FIELDS: ReadonlySet<TextFieldId> = new Set<TextFieldId>([
+  "gpuLayers",
+  "nCpuMoe",
+  "threads",
+  "batchSize",
+  "ubatchSize",
+  "parallel",
+  "port",
+]);
+
 /**
  * Options for each enum chooser. Index 0 is the neutral choice ("default"/
  * "auto") that leaves the corresponding flag unset; the rest map to a value.
@@ -164,6 +181,7 @@ export function FlagEditor({
   initialSpec,
   onSubmit,
   onCancel,
+  availableHeight,
 }: FlagEditorProps): React.ReactElement {
   const [values, setValues] = useState<TextValues>({
     name: initialName,
@@ -308,8 +326,10 @@ export function FlagEditor({
       setValues((v) => ({ ...v, [key2]: v[key2].slice(0, -1) }));
       return;
     }
-    // Ignore other control inputs; append printable characters.
+    // Ignore other control inputs; append printable characters. Numeric fields
+    // reject anything but digits so they can't hold an un-parseable value.
     if (input && !key.ctrl && !key.meta) {
+      if (NUMERIC_FIELDS.has(key2) && !/^[0-9]+$/.test(input)) return;
       setValues((v) => ({ ...v, [key2]: v[key2] + input }));
     }
   });
@@ -337,6 +357,19 @@ export function FlagEditor({
     </Box>
   );
 
+  // Window the field list when it won't all fit, keeping the focused field in
+  // view. Chrome inside the box is the border (2) + title (1) + the hint block
+  // (marginTop + line = 2); reserve one more line for the scroll indicator.
+  const capacity =
+    availableHeight != null ? Math.max(1, availableHeight - 5) : undefined;
+  const scrolling = capacity != null && FIELDS.length > capacity;
+  const { start, end } = scrolling
+    ? windowSlice(FIELDS.length, focus, Math.max(1, capacity - 1))
+    : { start: 0, end: FIELDS.length };
+  const visibleFields = FIELDS.slice(start, end);
+  const hiddenAbove = start;
+  const hiddenBelow = FIELDS.length - end;
+
   return (
     <Box
       flexDirection="column"
@@ -345,7 +378,8 @@ export function FlagEditor({
       paddingX={1}
     >
       <Text bold>{title}</Text>
-      {FIELDS.map((f, i) => {
+      {visibleFields.map((f, vi) => {
+        const i = start + vi;
         const focused = i === focus;
 
         if (f.id === "ctxSize") {
@@ -377,6 +411,13 @@ export function FlagEditor({
           </Box>
         );
       })}
+      {scrolling ? (
+        <Text dimColor>
+          {hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : ""}
+          {hiddenAbove > 0 && hiddenBelow > 0 ? "   " : ""}
+          {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
+        </Text>
+      ) : null}
       <Box marginTop={1}>
         <Text dimColor>Tab/↑↓ move · ←/→ adjust · Enter save · Esc cancel</Text>
       </Box>
