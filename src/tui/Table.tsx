@@ -27,6 +27,12 @@ export interface TableProps {
   fill?: boolean;
   /** Terminal width; the NAME column stretches to fill it when provided. */
   width?: number;
+  /**
+   * Max number of data rows to render at once. When the list is longer the
+   * table windows around the selected row and shows scroll indicators. Omit to
+   * render every row (no scrolling).
+   */
+  maxRows?: number;
 }
 
 /** Columns shown in the compact "catalog" variant (the model list). */
@@ -117,6 +123,23 @@ const COLUMNS: ColumnDef[] = [
   },
 ];
 
+/**
+ * Pick the [start, end) slice of `total` rows to show in `capacity` lines,
+ * keeping `selected` visible by centering it. With the selection off-screen
+ * (-1) it anchors to the top.
+ */
+export function windowSlice(
+  total: number,
+  selected: number,
+  capacity: number,
+): { start: number; end: number } {
+  if (total <= capacity) return { start: 0, end: total };
+  const anchor = selected < 0 ? 0 : selected;
+  let start = anchor - Math.floor(capacity / 2);
+  start = Math.max(0, Math.min(start, total - capacity));
+  return { start, end: start + capacity };
+}
+
 function pad(s: string, width: number, right: boolean): string {
   if (s.length > width) return s.slice(0, Math.max(0, width - 1)) + "…";
   return right ? s.padStart(width) : s.padEnd(width);
@@ -148,6 +171,7 @@ function TableImpl({
   emptyText = "(none)",
   fill = false,
   width,
+  maxRows,
 }: TableProps): React.ReactElement {
   const baseCols = COLUMNS.filter((c) => {
     if (variant === "catalog") return CATALOG_HEADERS.has(c.header);
@@ -167,6 +191,16 @@ function TableImpl({
     .map((c) => pad(c.header, c.width, c.alignRight ?? false))
     .join(" ");
 
+  // Window the rows when there are more than will fit, reserving one line for
+  // the scroll indicator. The selected row stays in view (see windowSlice).
+  const scrolling = maxRows != null && rows.length > maxRows;
+  const { start, end } = scrolling
+    ? windowSlice(rows.length, selectedIndex, Math.max(1, maxRows - 1))
+    : { start: 0, end: rows.length };
+  const visible = rows.slice(start, end);
+  const hiddenAbove = start;
+  const hiddenBelow = rows.length - end;
+
   return (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0}>
       {title ? (
@@ -180,8 +214,8 @@ function TableImpl({
       {rows.length === 0 ? (
         <Text dimColor>{emptyText}</Text>
       ) : (
-        rows.map((row, i) => {
-          const selected = i === selectedIndex;
+        visible.map((row, i) => {
+          const selected = start + i === selectedIndex;
           const line = cols
             .map((c) => pad(c.get(row, now), c.width, c.alignRight ?? false))
             .join(" ");
@@ -200,6 +234,13 @@ function TableImpl({
           );
         })
       )}
+      {scrolling ? (
+        <Text dimColor>
+          {hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : ""}
+          {hiddenAbove > 0 && hiddenBelow > 0 ? "   " : ""}
+          {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
+        </Text>
+      ) : null}
     </Box>
   );
 }

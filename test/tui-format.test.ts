@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { pct, bar } from "../src/tui/format.ts";
+import { windowSlice } from "../src/tui/Table.tsx";
 
 describe("pct", () => {
   test("formats a whole percent", () => {
@@ -58,5 +59,38 @@ describe("bar", () => {
   test("NaN value or max is treated as empty", () => {
     expect(bar(NaN, 100, 5)).toBe("░".repeat(5));
     expect(bar(5, NaN, 5)).toBe("░".repeat(5));
+  });
+});
+
+describe("windowSlice", () => {
+  test("shows every row when they all fit", () => {
+    expect(windowSlice(5, 2, 10)).toEqual({ start: 0, end: 5 });
+    expect(windowSlice(10, 9, 10)).toEqual({ start: 0, end: 10 });
+  });
+  test("anchors to the top while the selection is near the start", () => {
+    expect(windowSlice(100, 0, 10)).toEqual({ start: 0, end: 10 });
+    expect(windowSlice(100, 4, 10)).toEqual({ start: 0, end: 10 });
+  });
+  test("centers the selection in the middle of the list", () => {
+    const { start, end } = windowSlice(100, 50, 10);
+    expect(start).toBe(45);
+    expect(end).toBe(55);
+    expect(50).toBeGreaterThanOrEqual(start);
+    expect(50).toBeLessThan(end);
+  });
+  test("clamps to the bottom near the end of the list", () => {
+    expect(windowSlice(100, 99, 10)).toEqual({ start: 90, end: 100 });
+    expect(windowSlice(100, 97, 10)).toEqual({ start: 90, end: 100 });
+  });
+  test("keeps the selection visible across the whole range", () => {
+    for (let sel = 0; sel < 100; sel++) {
+      const { start, end } = windowSlice(100, sel, 10);
+      expect(sel).toBeGreaterThanOrEqual(start);
+      expect(sel).toBeLessThan(end);
+      expect(end - start).toBe(10);
+    }
+  });
+  test("anchors to the top when nothing is selected (-1)", () => {
+    expect(windowSlice(100, -1, 10)).toEqual({ start: 0, end: 10 });
   });
 });

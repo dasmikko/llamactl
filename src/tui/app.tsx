@@ -338,6 +338,25 @@ function App({ config }: AppProps): React.ReactElement {
 
   const gpuAvailable = stats?.gpuAvailable ?? false;
 
+  // How many catalog rows fit below everything else, so the MODELS list windows
+  // and scrolls instead of overflowing the terminal. We subtract the height of
+  // each fixed region by counting the lines it renders (the layout is all
+  // single-line Text rows, so this stays in sync with the JSX below):
+  //   header  = round border (2) + title/CPU/RAM (3) + 2 per GPU + warnings
+  //   downloads = title (1) + up to 5 rows + marginBottom (1), only when shown
+  //   active   = title (1) + column header (1) + rows (or 1 empty line)
+  //   models chrome = marginTop (1) + title (1) + column header (1)
+  //   footer  = status bar (1)
+  const gpuLines = gpuAvailable ? (stats?.gpus.length ?? 0) * 2 : 0;
+  const headerLines =
+    2 + 3 + gpuLines + (llamaServer && !llamaServer.found ? 1 : 0) + (error ? 1 : 0);
+  const downloadsLines = downloads.length > 0 ? 1 + Math.min(5, downloads.length) + 1 : 0;
+  const activeLines = 1 + 1 + Math.max(1, runningRows.length);
+  const catalogCapacity = Math.max(
+    1,
+    screenRows - headerLines - downloadsLines - activeLines - 3 - 1,
+  );
+
   // Full-screen layout: fixed header, a growing body that fills the terminal,
   // and a footer pinned to the bottom row.
   return (
@@ -402,6 +421,7 @@ function App({ config }: AppProps): React.ReactElement {
                 emptyText="(no models or profiles)"
                 fill
                 width={columns}
+                maxRows={catalogCapacity}
               />
             </Box>
           </>
