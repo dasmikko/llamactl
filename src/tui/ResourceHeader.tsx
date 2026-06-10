@@ -42,7 +42,7 @@ function ResourceHeaderImpl({
         <Text bold>🦙 llamactl</Text>
         <Text>  </Text>
         {connected ? (
-          <Text color="green">● connected</Text>
+          <Text color="green">● connected to daemon</Text>
         ) : (
           <Text color="yellow">○ connecting…</Text>
         )}
