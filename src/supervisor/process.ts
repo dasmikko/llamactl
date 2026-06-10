@@ -15,6 +15,7 @@ import type {
   Config,
   ISupervisor,
   LaunchSpec,
+  LlamaServerInfo,
   Model,
   ModelResolver,
   RunningModel,
@@ -77,8 +78,8 @@ export class Supervisor implements ISupervisor {
 
   private readonly children = new Map<string, Entry>();
   private shuttingDown = false;
-  /** Cached `llama-server --version` probe (the binary is the same every time). */
-  private versionProbe?: Promise<string | undefined>;
+  /** Cached `llama-server` probe (availability + version; the binary is fixed). */
+  private serverProbe?: Promise<LlamaServerInfo>;
 
   constructor(opts: SupervisorOptions) {
     this.config = opts.config;
@@ -243,13 +244,20 @@ export class Supervisor implements ISupervisor {
   }
 
   /**
-   * Detect the `llama-server` version by running `--version` once and caching
-   * the result (the binary doesn't change between spawns). Resolves to a short
-   * version string (e.g. "5402 (a1b2c3d)") or undefined if it can't be read.
+   * Report the `llama-server` binary (path / found / version), detected once and
+   * cached — the resolved binary doesn't change over the daemon's lifetime.
    */
-  private detectVersion(): Promise<string | undefined> {
-    if (!this.versionProbe) this.versionProbe = this.runVersionProbe();
-    return this.versionProbe;
+  serverInfo(): Promise<LlamaServerInfo> {
+    if (!this.serverProbe) this.serverProbe = this.probeServer();
+    return this.serverProbe;
+  }
+
+  private async probeServer(): Promise<LlamaServerInfo> {
+    const path = this.llamaServerPath;
+    // A path-like value must exist on disk; a bare command is looked up on PATH.
+    const found = this.looksLikePath(path) ? existsSync(path) : Bun.which(path) !== null;
+    if (!found) return { path, found: false };
+    return { path, found: true, version: await this.runVersionProbe() };
   }
 
   private async runVersionProbe(): Promise<string | undefined> {
@@ -322,7 +330,7 @@ export class Supervisor implements ISupervisor {
       restarts: 0,
       logPath,
       spec,
-      llamaServerVersion: await this.detectVersion(),
+      llamaServerVersion: (await this.serverInfo()).version,
     };
 
     const entry: Entry = {

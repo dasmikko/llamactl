@@ -6,11 +6,12 @@
 
 import React from "react";
 import { Box, Text } from "ink";
-import type { StatsSnapshot } from "../types.ts";
+import type { LlamaServerInfo, StatsSnapshot } from "../types.ts";
 import { bar, pct, humanBytes } from "./format.ts";
 
 export interface ResourceHeaderProps {
   stats: StatsSnapshot | null;
+  llamaServer: LlamaServerInfo | null;
   error: string | null;
   connected: boolean;
 }
@@ -26,6 +27,7 @@ function clamp100(n: number): number {
 
 function ResourceHeaderImpl({
   stats,
+  llamaServer,
   error,
   connected,
 }: ResourceHeaderProps): React.ReactElement {
@@ -44,6 +46,9 @@ function ResourceHeaderImpl({
         ) : (
           <Text color="yellow">○ connecting…</Text>
         )}
+        {llamaServer?.found && llamaServer.version ? (
+          <Text dimColor>{`  llama-server ${llamaServer.version}`}</Text>
+        ) : null}
       </Box>
 
       <Box>
@@ -97,6 +102,14 @@ function ResourceHeaderImpl({
             );
           })
         : null}
+
+      {llamaServer && !llamaServer.found ? (
+        <Box>
+          <Text color="red">
+            ⚠ llama-server not found ({llamaServer.path}) — set llamaServerPath or add it to PATH
+          </Text>
+        </Box>
+      ) : null}
 
       {error ? (
         <Box>

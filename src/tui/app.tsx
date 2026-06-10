@@ -72,6 +72,7 @@ function App({ config }: AppProps): React.ReactElement {
     instances,
     running,
     stats,
+    llamaServer,
     downloads,
     error,
     connected,
@@ -341,7 +342,12 @@ function App({ config }: AppProps): React.ReactElement {
   // and a footer pinned to the bottom row.
   return (
     <Box flexDirection="column" width={columns} height={screenRows}>
-      <ResourceHeader stats={stats} error={error} connected={connected} />
+      <ResourceHeader
+        stats={stats}
+        llamaServer={llamaServer}
+        error={error}
+        connected={connected}
+      />
 
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
         {mode === "edit" && editor ? (

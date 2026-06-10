@@ -12,6 +12,7 @@ import type {
   InstanceConfig,
   RunningModel,
   StatsSnapshot,
+  LlamaServerInfo,
   LaunchSpec,
   StartRequest,
   ModelsResponse,
@@ -41,6 +42,8 @@ export interface UseDaemon {
   instances: InstanceConfig[];
   running: RunningModel[];
   stats: StatsSnapshot | null;
+  /** The llama-server binary the daemon will spawn (path / found / version). */
+  llamaServer: LlamaServerInfo | null;
   downloads: Download[];
   error: string | null;
   connected: boolean;
@@ -75,6 +78,7 @@ export function useDaemon(config: Config): UseDaemon {
   const [instances, setInstances] = useState<InstanceConfig[]>([]);
   const [running, setRunning] = useState<RunningModel[]>([]);
   const [stats, setStats] = useState<StatsSnapshot | null>(null);
+  const [llamaServer, setLlamaServer] = useState<LlamaServerInfo | null>(null);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -110,6 +114,7 @@ export function useDaemon(config: Config): UseDaemon {
       if (!mountedRef.current) return;
       setRunning(ps.running);
       setStats(st.stats);
+      setLlamaServer(st.llamaServer);
       setDownloads(dl.downloads);
       setError(null);
       // While downloads are in flight or recently finished, keep the model list
@@ -270,6 +275,7 @@ export function useDaemon(config: Config): UseDaemon {
     instances,
     running,
     stats,
+    llamaServer,
     downloads,
     error,
     connected,

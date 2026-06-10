@@ -49,6 +49,7 @@ function mockSupervisor(): ISupervisor & { started: string[]; stopped: string[] 
       return running(sel);
     },
     ensureReady: async (spec) => running(spec.model),
+    serverInfo: async () => ({ path: "llama-server", found: true, version: "test (mock)" }),
     shutdownAll: async () => {},
   };
 }

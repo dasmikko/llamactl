@@ -335,9 +335,20 @@ export interface InstancesResponse {
   instances: InstanceConfig[];
 }
 
-/** GET /stats response — latest resource snapshot. */
+/** Availability + version of the `llama-server` binary the daemon will spawn. */
+export interface LlamaServerInfo {
+  /** Resolved path, or the bare command name the daemon will exec. */
+  path: string;
+  /** Whether that binary was found (at the configured path or on PATH). */
+  found: boolean;
+  /** Version reported by `--version`, when the binary is present and readable. */
+  version?: string;
+}
+
+/** GET /stats response — latest resource snapshot + llama-server availability. */
 export interface StatsResponse {
   stats: StatsSnapshot;
+  llamaServer: LlamaServerInfo;
 }
 
 /** GET /hf/search response — matching repos. */
@@ -400,6 +411,11 @@ export interface ISupervisor {
   start(spec: LaunchSpec): Promise<RunningModel>;
   /** Stop a running model. Throws LlamactlError("not_running") if absent. */
   stop(selector: string): Promise<RunningModel>;
+  /**
+   * Report the `llama-server` binary the daemon will spawn: its path, whether it
+   * was found, and its version. Result is detected once and cached.
+   */
+  serverInfo(): Promise<LlamaServerInfo>;
   /**
    * Ensure a model is running AND has passed its /health readiness check,
    * starting it from the spec if necessary. Throws LlamactlError on

@@ -87,7 +87,6 @@ export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
         <Box marginTop={1} flexDirection="column">
           <Text bold>Running</Text>
           <Field label="Status" value={running.status} />
-          <Field label="llama-server" value={running.llamaServerVersion ?? "—"} />
           <Field label="Endpoint" value={`http://127.0.0.1:${running.port}`} />
           <Field label="PID" value={String(running.pid)} />
           <Field label="Uptime" value={humanUptime(running.startedAt, now)} />

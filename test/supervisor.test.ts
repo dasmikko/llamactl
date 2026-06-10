@@ -131,6 +131,22 @@ describe("Supervisor", () => {
     expect(sup.get("test-model")?.llamaServerVersion).toBe("9999 (fake-llama)");
   }, 15000);
 
+  test("serverInfo: reports found + version for an existing binary", async () => {
+    const sup = newSupervisor();
+    const info = await sup.serverInfo();
+    expect(info.found).toBe(true);
+    expect(info.path).toBe(FAKE_SERVER);
+    expect(info.version).toBe("9999 (fake-llama)");
+  }, 15000);
+
+  test("serverInfo: reports not-found for a missing binary path", async () => {
+    const sup = newSupervisor({ llamaServerPath: "/no/such/llama-server" });
+    const info = await sup.serverInfo();
+    expect(info.found).toBe(false);
+    expect(info.path).toBe("/no/such/llama-server");
+    expect(info.version).toBeUndefined();
+  });
+
   test("start alone flips to ready in the background (no ensureReady call)", async () => {
     const sup = newSupervisor();
     const started = await sup.start({ model: "test-model" });

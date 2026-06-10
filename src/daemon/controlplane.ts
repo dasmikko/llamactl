@@ -172,7 +172,10 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
         }
 
         if (path === "/stats" && req.method === "GET") {
-          const body: StatsResponse = { stats: opts.sampler.snapshot() };
+          const body: StatsResponse = {
+            stats: opts.sampler.snapshot(),
+            llamaServer: await opts.supervisor.serverInfo(),
+          };
           return json(body);
         }
 
