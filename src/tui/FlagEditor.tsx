@@ -28,6 +28,11 @@ export interface FlagEditorProps {
    * fit the list windows around the focused field. Omit to render every field.
    */
   availableHeight?: number;
+  /**
+   * Terminal width. When wide enough, an info panel describing the focused
+   * field is shown to the right of the form. Omit for a single-column layout.
+   */
+  availableWidth?: number;
 }
 
 /**
@@ -99,6 +104,124 @@ const FIELDS: FieldDef[] = [
   { id: "port", label: "Port" },
   { id: "extraArgs", label: "Extra args" },
 ];
+
+/** Help text shown in the side panel for the highlighted field. */
+interface FieldInfo {
+  /** The llama-server flag(s) this maps to, or a note when it isn't one. */
+  flag: string;
+  /** What the flag does. */
+  desc: string;
+  /** Defaults, ranges, or valid values worth surfacing. */
+  note?: string;
+}
+
+const INFO: Record<FieldId, FieldInfo> = {
+  name: {
+    flag: "(profile name)",
+    desc: "A label for this saved launch profile. Not passed to llama-server.",
+    note: "Blank ⇒ defaults to the model name.",
+  },
+  model: {
+    flag: "-m, --model",
+    desc: "The GGUF model to load: an id, name, substring, or absolute path.",
+    note: "Required.",
+  },
+  alias: {
+    flag: "-a, --alias",
+    desc: "Model name reported to API clients, e.g. in GET /v1/models. Handy when several instances run at once.",
+  },
+  ctxSize: {
+    flag: "-c, --ctx-size",
+    desc: "Context window size in tokens. Larger fits more prompt/history but uses more memory.",
+    note: "Default 4096. ←/→ for presets or Custom.",
+  },
+  cacheTypeK: {
+    flag: "--cache-type-k",
+    desc: "Data type storing the K (keys) of the attention KV-cache. Quantizing it shrinks cache memory — significant at long context — for a small quality cost. q8_0 is a good balance; q4_0 saves the most.",
+    note: `Default f16. Options: ${CACHE_TYPES.join(", ")}.`,
+  },
+  cacheTypeV: {
+    flag: "--cache-type-v",
+    desc: "Data type for the V (values) of the KV-cache. Same memory/quality trade-off as Cache K. Quantized V types generally require flash attention (-fa on), and best paired with a matching Cache K.",
+    note: `Default f16. Options: ${CACHE_TYPES.join(", ")}.`,
+  },
+  gpuLayers: {
+    flag: "-ngl, --gpu-layers",
+    desc: "Number of model layers to offload to the GPU.",
+    note: "Default 99 (all). 0 = CPU only.",
+  },
+  nCpuMoe: {
+    flag: "--n-cpu-moe",
+    desc: "Keep the first N layers' MoE expert weights on the CPU to save VRAM on mixture-of-experts models.",
+  },
+  threads: {
+    flag: "-t, --threads",
+    desc: "CPU threads used for generation.",
+    note: "Default: physical core count.",
+  },
+  batchSize: {
+    flag: "-b, --batch-size",
+    desc: "Logical batch size for prompt processing (tokens per submission).",
+    note: "Default 2048.",
+  },
+  ubatchSize: {
+    flag: "-ub, --ubatch-size",
+    desc: "Physical (micro) batch size: tokens actually processed per pass. Tune with batch size for throughput.",
+    note: "Default 512.",
+  },
+  parallel: {
+    flag: "-np, --parallel",
+    desc: "Number of request slots served concurrently. Raise to serve simultaneous clients (splits the context across slots).",
+    note: "Default 1.",
+  },
+  flashAttn: {
+    flag: "-fa, --flash-attn",
+    desc: "Flash attention: faster, lower-memory attention on supported GPUs.",
+    note: "auto lets llama.cpp decide.",
+  },
+  reasoning: {
+    flag: "--reasoning",
+    desc: "Toggle reasoning/thinking output for models that support it.",
+    note: "auto detects from the chat template.",
+  },
+  jinja: {
+    flag: "--jinja / --no-jinja",
+    desc: "Use the Jinja chat-template engine, needed for many chat and tool templates.",
+    note: "Enabled by default.",
+  },
+  mlock: {
+    flag: "--mlock",
+    desc: "Lock the model in RAM so the OS can't swap it out. Can reduce latency spikes.",
+    note: "Off by default.",
+  },
+  mmap: {
+    flag: "--no-mmap",
+    desc: "Memory-map the model file rather than loading it fully into RAM. On by default; set off to force a full load.",
+    note: "off ⇒ passes --no-mmap.",
+  },
+  mmproj: {
+    flag: "--mmproj",
+    desc: "Path to a multimodal projector file. Required to run vision (multimodal) models.",
+  },
+  chatTemplate: {
+    flag: "--chat-template",
+    desc: "Override the chat template: a built-in name (e.g. chatml) or a full Jinja string.",
+  },
+  host: {
+    flag: "--host",
+    desc: "Address the instance binds to. 127.0.0.1 keeps it local; any other address exposes it on the network.",
+    note: "Default 127.0.0.1.",
+  },
+  port: {
+    flag: "--port",
+    desc: "Fixed port for the instance.",
+    note: "Blank ⇒ auto-assigned.",
+  },
+  extraArgs: {
+    flag: "(passthrough)",
+    desc: "Extra llama-server arguments appended verbatim, space-separated. Use for flags without a field here.",
+  },
+};
 
 type TextValues = Record<TextFieldId, string>;
 
@@ -182,6 +305,7 @@ export function FlagEditor({
   onSubmit,
   onCancel,
   availableHeight,
+  availableWidth,
 }: FlagEditorProps): React.ReactElement {
   const [values, setValues] = useState<TextValues>({
     name: initialName,
@@ -370,14 +494,15 @@ export function FlagEditor({
   const hiddenAbove = start;
   const hiddenBelow = FIELDS.length - end;
 
-  return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-    >
-      <Text bold>{title}</Text>
+  // The side panel describes the highlighted field. Only show it when the
+  // terminal is wide enough to spare the columns; otherwise stay single-column.
+  const focusedField = FIELDS[focus]!;
+  const info = INFO[focusedField.id];
+  const showInfo = (availableWidth ?? 0) >= 56;
+  const infoWidth = Math.max(24, Math.min(46, Math.floor((availableWidth ?? 80) * 0.42)));
+
+  const form = (
+    <Box flexDirection="column" flexGrow={1}>
       {visibleFields.map((f, vi) => {
         const i = start + vi;
         const focused = i === focus;
@@ -404,7 +529,8 @@ export function FlagEditor({
                 {f.label}
               </Text>
             </Box>
-            <Text inverse={focused}>
+            {/* truncate-start keeps the tail (and cursor) of long paths visible. */}
+            <Text inverse={focused} wrap="truncate-start">
               {values[f.id as TextFieldId]}
               {focused ? "▏" : ""}
             </Text>
@@ -418,6 +544,47 @@ export function FlagEditor({
           {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
         </Text>
       ) : null}
+    </Box>
+  );
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="cyan"
+      paddingX={1}
+      width={availableWidth}
+    >
+      <Text bold>{title}</Text>
+      <Box flexDirection="row">
+        {form}
+        {showInfo ? (
+          <Box
+            flexDirection="column"
+            width={infoWidth}
+            marginLeft={2}
+            paddingLeft={2}
+            borderStyle="round"
+            borderColor="gray"
+            borderTop={false}
+            borderRight={false}
+            borderBottom={false}
+          >
+            <Text bold color="cyan">
+              {focusedField.label}
+            </Text>
+            <Text dimColor>{info.flag}</Text>
+            <Box marginTop={1}>
+              <Text>{info.desc}</Text>
+            </Box>
+            {info.note ? (
+              <Box marginTop={1}>
+                <Text dimColor>{info.note}</Text>
+              </Box>
+            ) : null}
+          </Box>
+        ) : null}
+      </Box>
       <Box marginTop={1}>
         <Text dimColor>Tab/↑↓ move · ←/→ adjust · Enter save · Esc cancel</Text>
       </Box>

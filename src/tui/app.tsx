@@ -379,6 +379,7 @@ function App({ config }: AppProps): React.ReactElement {
             // In edit mode the body holds only the editor (no footer), so the
             // header is all that sits above it.
             availableHeight={screenRows - headerLines}
+            availableWidth={columns}
           />
         ) : mode === "logs" && current?.running ? (
           <LogViewer
