@@ -110,6 +110,30 @@ describe("specToArgs", () => {
     expect(auto).not.toContain("--chat-template");
   });
 
+  test("emits ubatch-size, parallel, alias, and mmproj when set", () => {
+    const args = specToArgs({
+      modelPath: "/x.gguf", port: 1, configArgs: [],
+      spec: { model: "m", ubatchSize: 512, parallel: 4, alias: "my-model", mmproj: "/mmproj.gguf" },
+    });
+    expect(args[args.indexOf("--ubatch-size") + 1]).toBe("512");
+    expect(args[args.indexOf("--parallel") + 1]).toBe("4");
+    expect(args[args.indexOf("--alias") + 1]).toBe("my-model");
+    expect(args[args.indexOf("--mmproj") + 1]).toBe("/mmproj.gguf");
+  });
+
+  test("mlock 'on' emits --mlock; mmap 'off' emits --no-mmap; both unset emit nothing", () => {
+    const on = specToArgs({
+      modelPath: "/x.gguf", port: 1, configArgs: [],
+      spec: { model: "m", mlock: "on", mmap: "off" },
+    });
+    expect(on).toContain("--mlock");
+    expect(on).toContain("--no-mmap");
+
+    const off = specToArgs({ modelPath: "/x.gguf", port: 1, spec: { model: "m" }, configArgs: [] });
+    expect(off).not.toContain("--mlock");
+    expect(off).not.toContain("--no-mmap");
+  });
+
   test("emits --cache-type-k/-v when set", () => {
     const spec: LaunchSpec = { model: "m", cacheTypeK: "q8_0", cacheTypeV: "q4_0" };
     const args = specToArgs({ modelPath: "/x.gguf", port: 1, spec, configArgs: [] });
@@ -147,5 +171,11 @@ describe("validateSpec", () => {
   test("rejects an unknown cache type, accepts a valid one", () => {
     expect(() => validateSpec({ model: "m", cacheTypeK: "bogus" })).toThrow();
     expect(() => validateSpec({ model: "m", cacheTypeK: "q8_0", cacheTypeV: "f16" })).not.toThrow();
+  });
+  test("rejects negative ubatchSize/parallel and bad mlock/mmap, accepts valid", () => {
+    expect(() => validateSpec({ model: "m", ubatchSize: -1 })).toThrow();
+    expect(() => validateSpec({ model: "m", parallel: -2 })).toThrow();
+    expect(() => validateSpec({ model: "m", mlock: "yes" as "on" })).toThrow();
+    expect(() => validateSpec({ model: "m", ubatchSize: 256, parallel: 4, mlock: "on", mmap: "off" })).not.toThrow();
   });
 });

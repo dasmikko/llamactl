@@ -32,6 +32,7 @@ export interface FlagEditorProps {
 type FieldId =
   | "name"
   | "model"
+  | "alias"
   | "ctxSize"
   | "cacheTypeK"
   | "cacheTypeV"
@@ -39,16 +40,28 @@ type FieldId =
   | "nCpuMoe"
   | "threads"
   | "batchSize"
+  | "ubatchSize"
+  | "parallel"
   | "flashAttn"
   | "reasoning"
   | "jinja"
+  | "mlock"
+  | "mmap"
+  | "mmproj"
   | "chatTemplate"
   | "host"
   | "port"
   | "extraArgs";
 
 /** Fields rendered as a left/right enum chooser (index 0 = neutral/default). */
-type EnumFieldId = "cacheTypeK" | "cacheTypeV" | "flashAttn" | "reasoning" | "jinja";
+type EnumFieldId =
+  | "cacheTypeK"
+  | "cacheTypeV"
+  | "flashAttn"
+  | "reasoning"
+  | "jinja"
+  | "mlock"
+  | "mmap";
 type TextFieldId = Exclude<FieldId, EnumFieldId | "ctxSize">;
 
 interface FieldDef {
@@ -59,6 +72,7 @@ interface FieldDef {
 const FIELDS: FieldDef[] = [
   { id: "name", label: "Name" },
   { id: "model", label: "Model" },
+  { id: "alias", label: "Alias" },
   { id: "ctxSize", label: "Ctx size" },
   { id: "cacheTypeK", label: "Cache K" },
   { id: "cacheTypeV", label: "Cache V" },
@@ -66,9 +80,14 @@ const FIELDS: FieldDef[] = [
   { id: "nCpuMoe", label: "CPU MoE" },
   { id: "threads", label: "Threads" },
   { id: "batchSize", label: "Batch size" },
+  { id: "ubatchSize", label: "uBatch size" },
+  { id: "parallel", label: "Parallel" },
   { id: "flashAttn", label: "Flash attn" },
   { id: "reasoning", label: "Reasoning" },
   { id: "jinja", label: "Jinja" },
+  { id: "mlock", label: "mlock" },
+  { id: "mmap", label: "mmap" },
+  { id: "mmproj", label: "mmproj" },
   { id: "chatTemplate", label: "Chat tmpl" },
   { id: "host", label: "Host" },
   { id: "port", label: "Port" },
@@ -87,6 +106,10 @@ const ENUM_OPTS: Record<EnumFieldId, readonly string[]> = {
   flashAttn: ["auto", "on", "off"],
   reasoning: ["auto", "on", "off"],
   jinja: ["default", "on", "off"],
+  // mlock defaults to off (index 0 ⇒ unset); mmap defaults to on (index 0 ⇒
+  // unset), with "off" emitting --no-mmap. Index 0 is always the neutral state.
+  mlock: ["off", "on"],
+  mmap: ["on", "off"],
 };
 
 function isEnumField(id: FieldId): id is EnumFieldId {
@@ -95,7 +118,9 @@ function isEnumField(id: FieldId): id is EnumFieldId {
     id === "cacheTypeV" ||
     id === "flashAttn" ||
     id === "reasoning" ||
-    id === "jinja"
+    id === "jinja" ||
+    id === "mlock" ||
+    id === "mmap"
   );
 }
 
@@ -143,10 +168,14 @@ export function FlagEditor({
   const [values, setValues] = useState<TextValues>({
     name: initialName,
     model: initialSpec.model,
+    alias: initialSpec.alias ?? "",
     gpuLayers: numStr(initialSpec.gpuLayers),
     nCpuMoe: numStr(initialSpec.nCpuMoe),
     threads: numStr(initialSpec.threads),
     batchSize: numStr(initialSpec.batchSize),
+    ubatchSize: numStr(initialSpec.ubatchSize),
+    parallel: numStr(initialSpec.parallel),
+    mmproj: initialSpec.mmproj ?? "",
     chatTemplate: initialSpec.chatTemplate ?? "",
     host: initialSpec.host ?? "",
     port: numStr(initialSpec.port),
@@ -163,6 +192,8 @@ export function FlagEditor({
     flashAttn: enumIndex("flashAttn", initialSpec.flashAttn),
     reasoning: enumIndex("reasoning", initialSpec.reasoning),
     jinja: enumIndex("jinja", initialSpec.jinja),
+    mlock: enumIndex("mlock", initialSpec.mlock),
+    mmap: enumIndex("mmap", initialSpec.mmap),
   }));
 
   /** The effective ctx size from the current option (preset or custom text). */
@@ -182,16 +213,22 @@ export function FlagEditor({
       .filter((s) => s.length > 0);
     const spec: LaunchSpec = {
       model: values.model.trim(),
+      alias: values.alias.trim() === "" ? undefined : values.alias.trim(),
       ctxSize: ctxValue(),
       gpuLayers: parseNum(values.gpuLayers),
       nCpuMoe: parseNum(values.nCpuMoe),
       threads: parseNum(values.threads),
       batchSize: parseNum(values.batchSize),
+      ubatchSize: parseNum(values.ubatchSize),
+      parallel: parseNum(values.parallel),
       flashAttn: enumValue("flashAttn") as "on" | "off" | undefined,
       reasoning: enumValue("reasoning") as "on" | "off" | undefined,
       jinja: enumValue("jinja") as "on" | "off" | undefined,
+      mlock: enumValue("mlock") as "on" | "off" | undefined,
+      mmap: enumValue("mmap") as "on" | "off" | undefined,
       cacheTypeK: enumValue("cacheTypeK"),
       cacheTypeV: enumValue("cacheTypeV"),
+      mmproj: values.mmproj.trim() === "" ? undefined : values.mmproj.trim(),
       chatTemplate: values.chatTemplate.trim() === "" ? undefined : values.chatTemplate.trim(),
       host: values.host.trim() === "" ? undefined : values.host.trim(),
       port: parseNum(values.port),

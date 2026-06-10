@@ -60,7 +60,13 @@ Options:
   --ngl <n>            GPU layers to offload (--gpu-layers)
   --n-cpu-moe <n>      Keep first N layers' MoE expert weights on CPU
   --threads <n>        CPU threads
-  --batch-size <n>     Batch size
+  --batch-size <n>     Logical batch size
+  --ubatch-size <n>    Physical (micro) batch size (--ubatch-size)
+  --parallel <n>       Parallel request slots (--parallel / -np)
+  --alias <name>       Model name reported to API clients (--alias)
+  --mmproj <path>      Multimodal projector file for vision models (--mmproj)
+  --mlock              Lock the model in RAM (--no-mlock to disable)
+  --no-mmap            Disable memory-mapping the model (mmap is on by default)
   --flash-attn         Enable flash attention (--no-flash-attn to disable)
   --reasoning          Enable reasoning/thinking (--no-reasoning to disable)
   --jinja              Use the Jinja chat-template engine (--no-jinja to disable)

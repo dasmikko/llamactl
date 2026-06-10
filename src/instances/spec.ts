@@ -58,6 +58,8 @@ export function validateSpec(spec: LaunchSpec): void {
   posInt(spec.nCpuMoe, "nCpuMoe");
   posInt(spec.threads, "threads");
   posInt(spec.batchSize, "batchSize");
+  posInt(spec.ubatchSize, "ubatchSize");
+  posInt(spec.parallel, "parallel");
   if (spec.port !== undefined) {
     if (!Number.isInteger(spec.port) || spec.port < 1 || spec.port > 65535) {
       throw new LlamactlError("invalid_spec", `port must be in 1..65535 (got ${spec.port})`, {
@@ -88,6 +90,8 @@ export function validateSpec(spec: LaunchSpec): void {
   checkOnOff(spec.flashAttn, "flashAttn");
   checkOnOff(spec.reasoning, "reasoning");
   checkOnOff(spec.jinja, "jinja");
+  checkOnOff(spec.mlock, "mlock");
+  checkOnOff(spec.mmap, "mmap");
 }
 
 /**
@@ -112,6 +116,13 @@ export function specToArgs(opts: {
   if (spec.nCpuMoe !== undefined) args.push("--n-cpu-moe", String(spec.nCpuMoe));
   if (spec.threads !== undefined) args.push("--threads", String(spec.threads));
   if (spec.batchSize !== undefined) args.push("--batch-size", String(spec.batchSize));
+  if (spec.ubatchSize !== undefined) args.push("--ubatch-size", String(spec.ubatchSize));
+  if (spec.parallel !== undefined) args.push("--parallel", String(spec.parallel));
+  if (spec.alias !== undefined && spec.alias !== "") args.push("--alias", spec.alias);
+  if (spec.mmproj !== undefined && spec.mmproj !== "") args.push("--mmproj", spec.mmproj);
+  // --mlock is an enable-only flag; --mmap is on by default, disabled via --no-mmap.
+  if (spec.mlock === "on") args.push("--mlock");
+  if (spec.mmap === "off") args.push("--no-mmap");
   // Recent llama.cpp takes a value: `--flash-attn on|off|auto`. Emit on/off when
   // explicitly chosen; absent ⇒ leave unset (llama.cpp default is auto).
   if (spec.flashAttn === "on" || spec.flashAttn === "off") {

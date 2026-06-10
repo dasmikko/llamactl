@@ -63,6 +63,18 @@ export interface LaunchSpec {
   threads?: number;
   /** --batch-size / -b */
   batchSize?: number;
+  /** --ubatch-size / -ub: physical (micro) batch size. */
+  ubatchSize?: number;
+  /** --parallel / -np: number of parallel request slots the server serves. */
+  parallel?: number;
+  /** --alias / -a: model name reported to API clients (e.g. /v1/models). */
+  alias?: string;
+  /** --mmproj: multimodal projector file, required to run vision models. */
+  mmproj?: string;
+  /** --mlock: lock the model in RAM. "on" emits the flag; undefined ⇒ unset. */
+  mlock?: "on" | "off";
+  /** --no-mmap memory-mapping. "off" emits --no-mmap; undefined ⇒ default (on). */
+  mmap?: "on" | "off";
   /** --flash-attn on|off; undefined ⇒ leave unset (llama.cpp default: auto). */
   flashAttn?: "on" | "off";
   /** --reasoning on|off; undefined ⇒ leave unset (default: auto, detect from template). */

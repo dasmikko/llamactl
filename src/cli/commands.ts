@@ -49,12 +49,25 @@ function flagsToSpec(model: string, args: ParsedArgs): LaunchSpec {
   if (threads !== undefined) spec.threads = threads;
   const batch = numOpt(args, "batch-size");
   if (batch !== undefined) spec.batchSize = batch;
+  const ubatch = numOpt(args, "ubatch-size");
+  if (ubatch !== undefined) spec.ubatchSize = ubatch;
+  const parallel = numOpt(args, "parallel");
+  if (parallel !== undefined) spec.parallel = parallel;
+  const alias = strOpt(args, "alias");
+  if (alias !== undefined) spec.alias = alias;
+  const mmproj = strOpt(args, "mmproj");
+  if (mmproj !== undefined) spec.mmproj = mmproj;
   if (args.options["flash-attn"] === true) spec.flashAttn = "on";
   else if (args.options["flash-attn"] === false) spec.flashAttn = "off";
   if (args.options["reasoning"] === true) spec.reasoning = "on";
   else if (args.options["reasoning"] === false) spec.reasoning = "off";
   if (args.options["jinja"] === true) spec.jinja = "on";
   else if (args.options["jinja"] === false) spec.jinja = "off";
+  if (args.options["mlock"] === true) spec.mlock = "on";
+  else if (args.options["mlock"] === false) spec.mlock = "off";
+  // --no-mmap disables memory-mapping; --mmap re-asserts the default (on).
+  if (args.options["mmap"] === false) spec.mmap = "off";
+  else if (args.options["mmap"] === true) spec.mmap = "on";
   const ctk = strOpt(args, "cache-type-k");
   if (ctk !== undefined) spec.cacheTypeK = ctk;
   const ctv = strOpt(args, "cache-type-v");
