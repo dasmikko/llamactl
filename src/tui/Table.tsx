@@ -19,6 +19,8 @@ export interface TableProps {
   now: number;
   /** Section heading rendered above the column header. */
   title?: string;
+  /** Color of the section heading (any Ink color, incl. hex). Defaults to cyan. */
+  titleColor?: string;
   /** "full" shows runtime columns; "catalog" shows just name/quant/size/status. */
   variant?: "full" | "catalog";
   /** Placeholder shown when there are no rows. */
@@ -172,6 +174,7 @@ function TableImpl({
   gpuAvailable,
   now,
   title,
+  titleColor = "cyan",
   variant = "full",
   emptyText = "(none)",
   fill = false,
@@ -213,7 +216,7 @@ function TableImpl({
   return (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0}>
       {title ? (
-        <Text bold color="cyan">
+        <Text bold color={titleColor}>
           {title}
         </Text>
       ) : null}

@@ -115,11 +115,18 @@ function App({ config }: AppProps): React.ReactElement {
     [models, instances, running, stats, favoriteSet],
   );
   const rows = useMemo(() => filterRows(allRows, filter), [allRows, filter]);
-  // Split into the running ("active instances") group and everything else. The
-  // row order is running-first, so `rows === [...runningRows, ...modelRows]`,
+  // Split into three sections. buildRows sorts running → favorites → rest, so
+  // `rows === [...runningRows, ...favoriteRows, ...modelRows]` stays contiguous,
   // which keeps the global selection index (selIdx) mapping into each section.
   const runningRows = useMemo(() => rows.filter((r) => r.running), [rows]);
-  const modelRows = useMemo(() => rows.filter((r) => !r.running), [rows]);
+  const favoriteRows = useMemo(
+    () => rows.filter((r) => !r.running && r.isFavorite),
+    [rows],
+  );
+  const modelRows = useMemo(
+    () => rows.filter((r) => !r.running && !r.isFavorite),
+    [rows],
+  );
 
   // Resolve the tracked modelId to a current index, falling back to the top
   // when the tracked row is gone (or nothing is selected yet).
@@ -357,6 +364,7 @@ function App({ config }: AppProps): React.ReactElement {
   //   header  = round border (2) + title/CPU/RAM (3) + 2 per GPU + warnings
   //   downloads = title (1) + up to 5 rows + marginBottom (1), only when shown
   //   active   = title (1) + column header (1) + rows (or 1 empty line)
+  //   favorites = marginTop (1) + title (1) + column header (1) + rows, when shown
   //   models chrome = marginTop (1) + title (1) + column header (1)
   //   footer  = status bar (1)
   const gpuLines = gpuAvailable ? (stats?.gpus.length ?? 0) * 2 : 0;
@@ -364,9 +372,10 @@ function App({ config }: AppProps): React.ReactElement {
     2 + 3 + gpuLines + (llamaServer && !llamaServer.found ? 1 : 0) + (error ? 1 : 0);
   const downloadsLines = downloads.length > 0 ? 1 + Math.min(5, downloads.length) + 1 : 0;
   const activeLines = 1 + 1 + Math.max(1, runningRows.length);
+  const favoriteLines = favoriteRows.length > 0 ? 1 + 1 + 1 + favoriteRows.length : 0;
   const catalogCapacity = Math.max(
     1,
-    screenRows - headerLines - downloadsLines - activeLines - 3 - 1,
+    screenRows - headerLines - downloadsLines - activeLines - favoriteLines - 3 - 1,
   );
 
   // Full-screen layout: fixed header, a growing body that fills the terminal,
@@ -427,12 +436,35 @@ function App({ config }: AppProps): React.ReactElement {
               emptyText="(none running)"
               width={columns}
             />
+            {favoriteRows.length > 0 ? (
+              <Box marginTop={1}>
+                <Table
+                  title="★ FAVORITES"
+                  titleColor="#ff8700"
+                  variant="catalog"
+                  rows={favoriteRows}
+                  selectedIndex={
+                    selIdx >= runningRows.length &&
+                    selIdx < runningRows.length + favoriteRows.length
+                      ? selIdx - runningRows.length
+                      : -1
+                  }
+                  gpuAvailable={gpuAvailable}
+                  now={now}
+                  width={columns}
+                />
+              </Box>
+            ) : null}
             <Box marginTop={1} flexGrow={1}>
               <Table
                 title="MODELS"
                 variant="catalog"
                 rows={modelRows}
-                selectedIndex={selIdx >= runningRows.length ? selIdx - runningRows.length : -1}
+                selectedIndex={
+                  selIdx >= runningRows.length + favoriteRows.length
+                    ? selIdx - runningRows.length - favoriteRows.length
+                    : -1
+                }
                 gpuAvailable={gpuAvailable}
                 now={now}
                 emptyText="(no models or profiles)"
