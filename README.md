@@ -3,6 +3,10 @@
 A terminal UI for managing local [`llama-server`](https://github.com/ggml-org/llama.cpp)
 (llama.cpp) instances on your machine.
 
+This project is heavily inspired by [`llamastash`](https://github.com/llamastash/llamastash) but i needed some specific stuff, and made my own personal tool, with help from claude. 
+
+**I'd recommend using llamastash rather than this.**
+
 llamactl discovers the GGUF models you already have cached, lets you set and save
 `llama-server` flags per model, runs instances in the background via a small daemon
 (so the UI doesn't have to stay open), and shows live CPU / RAM / GPU / VRAM usage.
