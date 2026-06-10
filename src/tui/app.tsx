@@ -45,6 +45,7 @@ type PendingAction =
   | { kind: "stop-instance"; id: string; label: string }
   | { kind: "delete-instance"; id: string; label: string }
   | { kind: "delete-model"; id: string; label: string }
+  | { kind: "restart-daemon" }
   | null;
 
 interface AppProps {
@@ -94,6 +95,7 @@ function App({ config }: AppProps): React.ReactElement {
     searchHf,
     listHfFiles,
     pull,
+    restartDaemon,
   } = daemon;
 
   const [mode, setMode] = useState<Mode>("table");
@@ -268,6 +270,18 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
 
+      if (key.ctrl && input === "r") {
+        // Ctrl+R: restart the daemon (requires confirmation) — a global action,
+        // so it works whether or not a row is selected.
+        if (pending?.kind === "restart-daemon") {
+          void restartDaemon();
+          setPending(null);
+        } else {
+          setPending({ kind: "restart-daemon" });
+        }
+        return;
+      }
+
       if (!current) {
         if (input === "/") setMode("filter");
         else if (input === "p") setMode("hf");
@@ -326,7 +340,8 @@ function App({ config }: AppProps): React.ReactElement {
       if (input === "y" && pending) {
         if (pending.kind === "stop-instance") void stop(pending.id);
         else if (pending.kind === "delete-instance") void removeInstance(pending.id);
-        else void deleteModel(pending.id);
+        else if (pending.kind === "delete-model") void deleteModel(pending.id);
+        else if (pending.kind === "restart-daemon") void restartDaemon();
         setPending(null);
         return;
       }
@@ -574,6 +589,16 @@ function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
         </Box>
       );
     }
+    if (pending.kind === "restart-daemon") {
+      return (
+        <Box>
+          <Text color="red">
+            Restart the daemon? This stops all running instances. Press Ctrl+R or
+            y to confirm, Esc to cancel.
+          </Text>
+        </Box>
+      );
+    }
     const what =
       pending.kind === "delete-instance"
         ? `profile "${pending.label}"`
@@ -588,7 +613,7 @@ function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
     );
   }
   const hint =
-     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · q quit";
+     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · Ctrl+R restart · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>

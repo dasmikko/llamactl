@@ -27,10 +27,16 @@ import type {
   HfSearchResponse,
   HfFilesResponse,
 } from "../types.ts";
-import { connectDaemon, type DaemonConnection } from "../daemon/client.ts";
+import {
+  connectDaemon,
+  isProcessAlive,
+  type DaemonConnection,
+} from "../daemon/client.ts";
 import { isLlamactlError } from "../errors.ts";
 
 const POLL_MS = 1500;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function errMessage(e: unknown): string {
   if (isLlamactlError(e)) return `${e.code}: ${e.message}`;
@@ -76,6 +82,8 @@ export interface UseDaemon {
   pull(repo: string, file: string): Promise<void>;
   /** Cancel an in-flight download. */
   cancelDownload(id: string): Promise<void>;
+  /** Stop the running daemon and spawn a fresh one (e.g. to pick up new code). */
+  restartDaemon(): Promise<void>;
   refreshNow(): Promise<void>;
 }
 
@@ -254,6 +262,43 @@ export function useDaemon(config: Config): UseDaemon {
     [runMutation],
   );
 
+  const restartDaemon = useCallback(async (): Promise<void> => {
+    const conn = connRef.current;
+    // Drop the connection so the polling loop pauses while the daemon is down,
+    // and show the connecting state instead of the disconnected error screen.
+    connRef.current = null;
+    setConnecting(true);
+    setConnected(false);
+    try {
+      const pid = conn?.runtime.pid;
+      if (pid !== undefined) {
+        // SIGTERM mirrors `daemon stop`: the daemon clears runtime.json on the
+        // way out, so connectDaemon below won't latch onto the dying process.
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+          // Already gone; fall through to respawn.
+        }
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline && isProcessAlive(pid)) {
+          await sleep(100);
+        }
+      }
+      // connectDaemon forks a fresh daemon when no live runtime.json is present.
+      const next = await connectDaemon({ config });
+      if (!mountedRef.current) return;
+      connRef.current = next;
+      setConnected(true);
+      setConnecting(false);
+      await refreshNow();
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setConnected(false);
+      setConnecting(false);
+      setError(errMessage(e));
+    }
+  }, [config, refreshNow]);
+
   const searchHf = useCallback(async (query: string): Promise<HfRepo[]> => {
     const conn = connRef.current;
     if (!conn) throw new Error("not connected to the daemon");
@@ -315,6 +360,7 @@ export function useDaemon(config: Config): UseDaemon {
     listHfFiles,
     pull,
     cancelDownload,
+    restartDaemon,
     refreshNow,
   };
 }

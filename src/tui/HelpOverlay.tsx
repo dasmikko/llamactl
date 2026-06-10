@@ -28,6 +28,7 @@ const BINDINGS: Binding[] = [
   { keys: "p", desc: "pull a model from Hugging Face (search / browse)" },
   { keys: "/", desc: "filter the list" },
   { keys: "?", desc: "toggle this help" },
+  { keys: "Ctrl+R", desc: "restart the daemon (stops all instances; confirm with Ctrl+R or y)" },
   { keys: "Esc", desc: "close a modal / clear filter" },
   { keys: "q / Ctrl-C", desc: "quit (the daemon keeps running)" },
 ];
