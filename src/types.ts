@@ -35,6 +35,10 @@ export interface Model {
   arch: string | null;
   /** Supported/trained context length from GGUF metadata, or null. */
   contextLength: number | null;
+  /** Transformer block count from GGUF metadata (for memory estimates), or null. */
+  nLayers: number | null;
+  /** Per-layer KV dimension (n_head_kv × head_dim) for KV-cache sizing, or null. */
+  kvDim: number | null;
   /** Coarse kind inferred from metadata + filename. */
   kind: ModelKind;
   /** Author/org the model came from (e.g. "unsloth"), derived from the path, or null. */

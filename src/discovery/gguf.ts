@@ -14,6 +14,10 @@ export interface GgufMeta {
   arch: string | null;
   contextLength: number | null;
   kind: ModelKind;
+  /** Transformer block count ({arch}.block_count), or null. */
+  nLayers: number | null;
+  /** Per-layer KV dimension (n_head_kv × head_dim), for KV-cache sizing, or null. */
+  kvDim: number | null;
 }
 
 /** GGUF metadata value type tags. */
@@ -155,7 +159,7 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
 
   // Magic "GGUF" (0x47 0x47 0x55 0x46, little-endian uint32 0x46554747).
   if (view.byteLength < 24 || c.u32() !== 0x46554747) {
-    return { arch: null, contextLength: null, kind: kindFromName(path) };
+    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null };
   }
   c.u32(); // version
   c.u64(); // tensor count
@@ -165,6 +169,21 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
   let contextLength: number | null = null;
   let sawVision = false;
   let sawPooling = false;
+  // Hyperparameters used to size the KV cache. All sit before the tokenizer
+  // arrays, so the 1 MiB window covers them; matched by key suffix (the prefix
+  // is the architecture name, e.g. "llama.block_count").
+  let nLayers: number | null = null;
+  let nEmbd: number | null = null;
+  let nHead: number | null = null;
+  let nHeadKv: number | null = null;
+  let keyLength: number | null = null;
+
+  // Read a numeric scalar value for the current key, or skip it if not numeric.
+  const readNum = (type: number): number | null => {
+    const n = c.num(type);
+    if (n === null) skipValue(c, type);
+    return n;
+  };
 
   for (let i = 0; i < kvCount; i++) {
     if (c.remaining() < 12) break; // not enough for another key+type in our window
@@ -184,18 +203,31 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
       if (key === "general.architecture" && type === T_STRING) {
         arch = c.str();
       } else if (/\.context_length$/.test(key)) {
-        const n = c.num(type);
-        if (n !== null) contextLength = n;
-        else skipValue(c, type);
+        contextLength = readNum(type) ?? contextLength;
+      } else if (/\.block_count$/.test(key)) {
+        nLayers = readNum(type) ?? nLayers;
+      } else if (/\.embedding_length$/.test(key)) {
+        nEmbd = readNum(type) ?? nEmbd;
+      } else if (/\.attention\.head_count_kv$/.test(key)) {
+        nHeadKv = readNum(type) ?? nHeadKv;
+      } else if (/\.attention\.head_count$/.test(key)) {
+        nHead = readNum(type) ?? nHead;
+      } else if (/\.attention\.key_length$/.test(key)) {
+        keyLength = readNum(type) ?? keyLength;
       } else {
         skipValue(c, type);
       }
     } catch {
       break; // ran past our buffer window; use what we have
     }
-
-    if (arch !== null && contextLength !== null) break;
   }
+
+  // Per-layer KV dimension = n_head_kv × head_dim. head_dim is the explicit
+  // key_length when present, else embedding_length / head_count. n_head_kv
+  // defaults to n_head (no GQA); fall back to the full embedding dim otherwise.
+  const headDim = keyLength ?? (nEmbd != null && nHead ? nEmbd / nHead : null);
+  const headsKv = nHeadKv ?? nHead;
+  const kvDim = headsKv != null && headDim != null ? headsKv * headDim : nEmbd;
 
   if (arch === "clip" || /mmproj/i.test(basename(path))) sawVision = true;
 
@@ -205,7 +237,7 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
       ? "embedding"
       : "text";
 
-  return { arch, contextLength, kind };
+  return { arch, contextLength, kind, nLayers, kvDim };
 }
 
 /**
@@ -218,6 +250,6 @@ export async function readGgufMeta(path: string): Promise<GgufMeta> {
     const buf = await slice.arrayBuffer();
     return parseHeader(buf, path);
   } catch {
-    return { arch: null, contextLength: null, kind: kindFromName(path) };
+    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null };
   }
 }

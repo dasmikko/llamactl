@@ -8,7 +8,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { render, Box, Text, useApp, useInput, useStdout } from "ink";
-import type { Config, LaunchSpec, StartRequest } from "../types.ts";
+import type { Config, LaunchSpec, Model, StartRequest } from "../types.ts";
 import { useDaemon } from "./useDaemon.ts";
 import { buildRows, filterRows, defaultSpecForRow, type Row } from "./rows.ts";
 import { parseRepo } from "../discovery/models.ts";
@@ -32,6 +32,8 @@ interface EditorState {
   initialSpec: LaunchSpec;
   /** Instance id to PUT, or null to POST a new instance. */
   instanceId: string | null;
+  /** The resolved model (when known) for the live memory estimate. */
+  model: Model | undefined;
 }
 
 /** A destructive action armed and awaiting confirmation. */
@@ -151,6 +153,7 @@ function App({ config }: AppProps): React.ReactElement {
         initialName: "",
         initialSpec: { ...spec },
         instanceId: null,
+        model: row.model,
       });
     } else if (row.instance) {
       setEditor({
@@ -158,6 +161,7 @@ function App({ config }: AppProps): React.ReactElement {
         initialName: row.instance.name,
         initialSpec: { ...row.instance.spec },
         instanceId: row.instance.id,
+        model: row.model,
       });
     } else {
       // No saved profile yet → editing creates one.
@@ -166,6 +170,7 @@ function App({ config }: AppProps): React.ReactElement {
         initialName: row.name,
         initialSpec: { ...spec },
         instanceId: null,
+        model: row.model,
       });
     }
     setMode("edit");
@@ -380,6 +385,7 @@ function App({ config }: AppProps): React.ReactElement {
             // header is all that sits above it.
             availableHeight={screenRows - headerLines}
             availableWidth={columns}
+            model={editor.model}
           />
         ) : mode === "logs" && current?.running ? (
           <LogViewer

@@ -27,6 +27,8 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     mtimeMs: 0,
     arch: null,
     contextLength: null,
+    nLayers: null,
+    kvDim: null,
     kind: "text",
     org: null,
     ...overrides,

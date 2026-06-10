@@ -80,6 +80,44 @@ describe("readGgufMeta", () => {
     expect(meta.kind).toBe("embedding");
   });
 
+  test("reads KV-cache dims: kvDim = head_count_kv × (embedding/head_count)", async () => {
+    const p = await writeGguf(dir, "dims.gguf", [
+      kvStr("general.architecture", "llama"),
+      kvU32("llama.block_count", 32),
+      kvU32("llama.embedding_length", 4096),
+      kvU32("llama.attention.head_count", 32),
+      kvU32("llama.attention.head_count_kv", 8),
+    ]);
+    const meta = await readGgufMeta(p);
+    expect(meta.nLayers).toBe(32);
+    // head_dim = 4096 / 32 = 128; kvDim = 8 × 128 = 1024.
+    expect(meta.kvDim).toBe(1024);
+  });
+
+  test("explicit key_length overrides embedding/head_count for head_dim", async () => {
+    const p = await writeGguf(dir, "dims2.gguf", [
+      kvStr("general.architecture", "qwen2"),
+      kvU32("qwen2.block_count", 28),
+      kvU32("qwen2.embedding_length", 3584),
+      kvU32("qwen2.attention.head_count", 28),
+      kvU32("qwen2.attention.head_count_kv", 4),
+      kvU32("qwen2.attention.key_length", 128),
+    ]);
+    const meta = await readGgufMeta(p);
+    expect(meta.nLayers).toBe(28);
+    expect(meta.kvDim).toBe(4 * 128); // 512
+  });
+
+  test("missing attention dims ⇒ kvDim null", async () => {
+    const p = await writeGguf(dir, "nodims.gguf", [
+      kvStr("general.architecture", "llama"),
+      kvU32("llama.context_length", 4096),
+    ]);
+    const meta = await readGgufMeta(p);
+    expect(meta.nLayers).toBeNull();
+    expect(meta.kvDim).toBeNull();
+  });
+
   test("non-GGUF file ⇒ null fallback", async () => {
     const p = join(dir, "not.gguf");
     await writeFile(p, "this is not a gguf file");

@@ -7,8 +7,10 @@
 
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import type { LaunchSpec } from "../types.ts";
+import type { LaunchSpec, Model } from "../types.ts";
 import { CACHE_TYPES } from "../instances/spec.ts";
+import { estimateUsage } from "../instances/estimate.ts";
+import { humanBytes } from "./format.ts";
 import { windowSlice } from "./Table.tsx";
 
 export interface FlagEditorResult {
@@ -33,6 +35,8 @@ export interface FlagEditorProps {
    * field is shown to the right of the form. Omit for a single-column layout.
    */
   availableWidth?: number;
+  /** The resolved model, when known, used for the live VRAM/RAM estimate. */
+  model?: Model;
 }
 
 /**
@@ -306,6 +310,7 @@ export function FlagEditor({
   onCancel,
   availableHeight,
   availableWidth,
+  model,
 }: FlagEditorProps): React.ReactElement {
   const [values, setValues] = useState<TextValues>({
     name: initialName,
@@ -482,10 +487,11 @@ export function FlagEditor({
   );
 
   // Window the field list when it won't all fit, keeping the focused field in
-  // view. Chrome inside the box is the border (2) + title (1) + the hint block
-  // (marginTop + line = 2); reserve one more line for the scroll indicator.
+  // view. Chrome inside the box is the border (2) + title (1) + the estimate
+  // block (marginTop + line = 2) + the hint line (1); reserve one more line for
+  // the scroll indicator.
   const capacity =
-    availableHeight != null ? Math.max(1, availableHeight - 5) : undefined;
+    availableHeight != null ? Math.max(1, availableHeight - 6) : undefined;
   const scrolling = capacity != null && FIELDS.length > capacity;
   const { start, end } = scrolling
     ? windowSlice(FIELDS.length, focus, Math.max(1, capacity - 1))
@@ -500,6 +506,20 @@ export function FlagEditor({
   const info = INFO[focusedField.id];
   const showInfo = (availableWidth ?? 0) >= 56;
   const infoWidth = Math.max(24, Math.min(46, Math.floor((availableWidth ?? 80) * 0.42)));
+
+  // Live memory estimate from the model's GGUF dims and the current flags.
+  const estimate = model
+    ? estimateUsage(
+        { sizeBytes: model.sizeBytes, nLayers: model.nLayers, kvDim: model.kvDim },
+        {
+          model: values.model,
+          ctxSize: ctxValue(),
+          gpuLayers: parseNum(values.gpuLayers),
+          cacheTypeK: enumValue("cacheTypeK"),
+          cacheTypeV: enumValue("cacheTypeV"),
+        },
+      )
+    : null;
 
   const form = (
     <Box flexDirection="column" flexGrow={1}>
@@ -586,6 +606,24 @@ export function FlagEditor({
         ) : null}
       </Box>
       <Box marginTop={1}>
+        {estimate ? (
+          <Text wrap="truncate-end">
+            <Text color="magenta">≈ </Text>
+            <Text bold>{humanBytes(estimate.vramBytes)}</Text>
+            <Text dimColor> VRAM · </Text>
+            <Text bold>{humanBytes(estimate.ramBytes)}</Text>
+            <Text dimColor> RAM</Text>
+            <Text dimColor>
+              {`   (weights ${humanBytes(model!.sizeBytes)} · KV ${
+                estimate.kvUnknown ? "n/a" : humanBytes(estimate.kvBytes)
+              })`}
+            </Text>
+          </Text>
+        ) : (
+          <Text dimColor>≈ estimate unavailable (model not found)</Text>
+        )}
+      </Box>
+      <Box>
         <Text dimColor>Tab/↑↓ move · ←/→ adjust · Enter save · Esc cancel</Text>
       </Box>
     </Box>

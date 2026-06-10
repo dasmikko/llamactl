@@ -292,6 +292,8 @@ export async function discoverModels(opts?: DiscoverOptions): Promise<Model[]> {
       mtimeMs: f.mtimeMs,
       arch: meta.arch,
       contextLength: meta.contextLength,
+      nLayers: meta.nLayers,
+      kvDim: meta.kvDim,
       kind: meta.kind,
       org: parseOrg(f.path),
     });
