@@ -53,6 +53,29 @@ describe("loadInstanceStore", () => {
     }
   });
 
+  test("explicit id is used verbatim (not slugified) and collides loudly", async () => {
+    const store = await loadInstanceStore(await tempStorePath());
+    // A model id keeps dots/underscores that slugify() would strip, so the
+    // inline config must be created under the exact id.
+    const c = await store.create({ id: "qwen2.5-7b_q4", spec: { model: "qwen2.5-7b_q4" } });
+    expect(c.id).toBe("qwen2.5-7b_q4");
+    try {
+      await store.create({ id: "qwen2.5-7b_q4", spec: { model: "x" } });
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(isLlamactlError(e) && e.code).toBe("instance_exists");
+    }
+  });
+
+  test("blank-name profiles for the same model auto-disambiguate the id", async () => {
+    const store = await loadInstanceStore(await tempStorePath());
+    const a = await store.create({ spec: { model: "qwen" } });
+    const b = await store.create({ spec: { model: "qwen" } });
+    const c = await store.create({ spec: { model: "qwen" } });
+    expect([a.id, b.id, c.id]).toEqual(["qwen", "qwen-2", "qwen-3"]);
+    expect(store.list().map((x) => x.id)).toEqual(["qwen", "qwen-2", "qwen-3"]);
+  });
+
   test("update changes spec, bumps updatedAt, keeps createdAt and id", async () => {
     const store = await loadInstanceStore(await tempStorePath());
     const created = await store.create({ name: "u", spec: { model: "x", ctxSize: 1024 } });

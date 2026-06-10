@@ -32,6 +32,10 @@ interface EditorState {
   initialSpec: LaunchSpec;
   /** Instance id to PUT, or null to POST a new instance. */
   instanceId: string | null;
+  /** Explicit id to create under (the model's inline config); else derived. */
+  createId?: string;
+  /** Whether the editable Name field is shown (hidden for a model's inline config). */
+  showName: boolean;
   /** The resolved model (when known) for the live memory estimate. */
   model: Model | undefined;
 }
@@ -93,7 +97,7 @@ function App({ config }: AppProps): React.ReactElement {
   } = daemon;
 
   const [mode, setMode] = useState<Mode>("table");
-  // Selection is tracked by the row's modelId (not its index) so the cursor
+  // Selection is tracked by the row's unique key (not its index) so the cursor
   // follows a row when the list re-sorts — e.g. when a started model jumps to
   // the running group at the top.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -128,26 +132,26 @@ function App({ config }: AppProps): React.ReactElement {
     [rows],
   );
 
-  // Resolve the tracked modelId to a current index, falling back to the top
+  // Resolve the tracked key to a current index, falling back to the top
   // when the tracked row is gone (or nothing is selected yet).
   const selIdx = useMemo(() => {
     if (selectedId === null) return 0;
-    const i = rows.findIndex((r) => r.modelId === selectedId);
+    const i = rows.findIndex((r) => r.key === selectedId);
     return i >= 0 ? i : 0;
   }, [rows, selectedId]);
 
   const current: Row | undefined = rows[selIdx];
 
-  // Keep the tracked id in sync (first selection, or when the row vanishes).
+  // Keep the tracked key in sync (first selection, or when the row vanishes).
   useEffect(() => {
-    if (current && current.modelId !== selectedId) setSelectedId(current.modelId);
+    if (current && current.key !== selectedId) setSelectedId(current.key);
   }, [current, selectedId]);
 
-  /** Move the cursor to a row index, tracking it by modelId. */
+  /** Move the cursor to a row index, tracking it by key. */
   const moveTo = (i: number): void => {
     if (rows.length === 0) return;
     const clamped = Math.max(0, Math.min(i, rows.length - 1));
-    setSelectedId(rows[clamped]!.modelId);
+    setSelectedId(rows[clamped]!.key);
   };
 
   // Cancel any pending confirmation whenever the selection or mode changes.
@@ -158,28 +162,47 @@ function App({ config }: AppProps): React.ReactElement {
   const openEditor = (row: Row, asNew: boolean): void => {
     const spec = defaultSpecForRow(row, config.defaultCtx, config.defaultGpuLayers);
     if (asNew) {
+      // `n` → an additional profile (a testing variant) under this model. Blank
+      // name so the store derives + auto-disambiguates the id from the model.
       setEditor({
-        title: `New instance · ${row.name}`,
+        title: `New profile · ${row.name}`,
         initialName: "",
         initialSpec: { ...spec },
         instanceId: null,
+        showName: true,
         model: row.model,
       });
-    } else if (row.instance) {
+    } else if (row.instance && row.isExtraProfile) {
+      // `e` on an additional profile row → edit that profile (name editable).
       setEditor({
         title: `Edit profile · ${row.instance.name}`,
         initialName: row.instance.name,
         initialSpec: { ...row.instance.spec },
         instanceId: row.instance.id,
+        showName: true,
+        model: row.model,
+      });
+    } else if (row.instance) {
+      // `e` on a model row that already has an inline config → edit it in place.
+      // No name field: this is just the model's own flags.
+      setEditor({
+        title: `Edit flags · ${row.name}`,
+        initialName: row.instance.name,
+        initialSpec: { ...row.instance.spec },
+        instanceId: row.instance.id,
+        showName: false,
         model: row.model,
       });
     } else {
-      // No saved profile yet → editing creates one.
+      // `e` on a model with no saved flags yet → create its inline config keyed
+      // by the model id (so it merges onto the model row, not a child). No name.
       setEditor({
-        title: `New instance · ${row.name}`,
-        initialName: row.name,
+        title: `Edit flags · ${row.name}`,
+        initialName: "",
         initialSpec: { ...spec },
         instanceId: null,
+        createId: row.modelId,
+        showName: false,
         model: row.model,
       });
     }
@@ -211,7 +234,7 @@ function App({ config }: AppProps): React.ReactElement {
         spec: result.spec,
       });
     } else {
-      void createInstance(result.name, result.spec);
+      void createInstance(result.name, result.spec, ed.createId);
     }
   };
 
@@ -269,7 +292,7 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
       if (input === "f") {
-        void toggleFavorite(current.modelId);
+        void toggleFavorite(current.favoriteId);
         return;
       }
       if (input === "e") {
@@ -290,11 +313,12 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
       if (input === "D") {
-        // Delete the model's file(s) from disk — refused while it's running.
+        // Delete the model's file(s) from disk — only from a base model row
+        // (not an additional profile row), and refused while it's running.
         if (pending?.kind === "delete-model") {
           void deleteModel(pending.id);
           setPending(null);
-        } else if (current.model && !current.running) {
+        } else if (current.model && !current.isExtraProfile && !current.running) {
           setPending({ kind: "delete-model", id: current.model.id, label: current.name });
         }
         return;
@@ -394,6 +418,7 @@ function App({ config }: AppProps): React.ReactElement {
           <FlagEditor
             title={editor.title}
             initialName={editor.initialName}
+            showName={editor.showName}
             initialSpec={editor.initialSpec}
             onSubmit={onEditorSubmit}
             onCancel={onEditorCancel}

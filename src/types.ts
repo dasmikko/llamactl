@@ -332,6 +332,8 @@ export interface StopRequest {
 
 /** Body for creating/updating a saved instance profile. */
 export interface InstanceUpsertRequest {
+  /** Explicit id to create under (used for a model's inline config). */
+  id?: string;
   name?: string;
   spec: LaunchSpec;
 }
@@ -466,8 +468,12 @@ export interface IDownloadManager {
 export interface InstanceStore {
   list(): InstanceConfig[];
   get(id: string): InstanceConfig | undefined;
-  /** Create a profile; throws LlamactlError("instance_exists") on id collision. */
-  create(input: { name?: string; spec: LaunchSpec }): Promise<InstanceConfig>;
+  /**
+   * Create a profile; throws LlamactlError("instance_exists") on id collision.
+   * An explicit `id` is used verbatim (used for a model's inline config, whose
+   * id must equal the model id); otherwise the id is derived from name/model.
+   */
+  create(input: { id?: string; name?: string; spec: LaunchSpec }): Promise<InstanceConfig>;
   /** Update a profile; throws LlamactlError("instance_not_found"). */
   update(id: string, patch: { name?: string; spec?: LaunchSpec }): Promise<InstanceConfig>;
   /** Remove a profile; throws LlamactlError("instance_not_found"). */

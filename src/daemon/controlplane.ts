@@ -273,7 +273,7 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
           if (!body || typeof body.spec !== "object" || body.spec === null) {
             throw new LlamactlError("bad_request", "field 'spec' is required");
           }
-          const created = await opts.instances.create({ name: body.name, spec: body.spec });
+          const created = await opts.instances.create({ id: body.id, name: body.name, spec: body.spec });
           return json(created, 201);
         }
 

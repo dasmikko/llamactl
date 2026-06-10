@@ -65,7 +65,9 @@ function ctxHuman(n: number | null | undefined): string {
 }
 
 const COLUMNS: ColumnDef[] = [
-  { header: "NAME", width: 26, get: (r) => r.name },
+  // Additional profile rows are indented with a tree marker so they read as
+  // nested under their model's base row (the inline config stays on the model row).
+  { header: "NAME", width: 26, get: (r) => (r.isExtraProfile ? `  ↳ ${r.name}` : r.name) },
   { header: "AUTHOR", width: 14, catalogOnly: true, get: (r) => r.model?.org ?? "—" },
   { header: "ARCH", width: 9, catalogOnly: true, get: (r) => r.model?.arch ?? "—" },
   { header: "MODE", width: 6, catalogOnly: true, get: (r) => r.model?.kind ?? "—" },
@@ -237,14 +239,14 @@ function TableImpl({
           // the status color applied to the rest of the row.
           if (selected) {
             return (
-              <Text key={row.modelId} inverse>
+              <Text key={row.key} inverse>
                 {star} {line}
               </Text>
             );
           }
           const sc = statusColor(row);
           return (
-            <Text key={row.modelId}>
+            <Text key={row.key}>
               <Text color="yellow">{star}</Text>{" "}
               <Text color={sc}>{line}</Text>
             </Text>

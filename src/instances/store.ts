@@ -76,13 +76,24 @@ export async function loadInstanceStore(path = instancesPath()): Promise<Instanc
       return byId.get(id);
     },
 
-    async create(input: { name?: string; spec: LaunchSpec }): Promise<InstanceConfig> {
+    async create(input: { id?: string; name?: string; spec: LaunchSpec }): Promise<InstanceConfig> {
       validateSpec(input.spec);
-      const id = slugify(input.name ?? input.spec.model);
-      if (byId.has(id)) {
-        throw new LlamactlError("instance_exists", `an instance with id "${id}" already exists`, {
-          detail: { id },
-        });
+      // An explicit id (a model's inline config) or an explicit name both map to
+      // exactly one id and collide loudly. A blank name defaults to the model's
+      // slug, so several profiles for the same model would collide —
+      // disambiguate those with a numeric suffix instead.
+      let id: string;
+      if (input.id !== undefined || input.name !== undefined) {
+        id = input.id ?? slugify(input.name!);
+        if (byId.has(id)) {
+          throw new LlamactlError("instance_exists", `an instance with id "${id}" already exists`, {
+            detail: { id },
+          });
+        }
+      } else {
+        const base = slugify(input.spec.model);
+        id = base;
+        for (let n = 2; byId.has(id); n++) id = `${base}-${n}`;
       }
       const now = Date.now();
       const config: InstanceConfig = {

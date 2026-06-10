@@ -22,6 +22,12 @@ export interface FlagEditorProps {
   /** Title shown at the top, e.g. "Edit profile" / "New instance". */
   title: string;
   initialName: string;
+  /**
+   * Whether the Name field is shown/editable. Hidden when editing a model's
+   * inline flags (the name isn't relevant there); shown for named profiles.
+   * Defaults to true.
+   */
+  showName?: boolean;
   initialSpec: LaunchSpec;
   onSubmit: (result: FlagEditorResult) => void;
   onCancel: () => void;
@@ -305,6 +311,7 @@ function parseNum(s: string): number | undefined {
 export function FlagEditor({
   title,
   initialName,
+  showName = true,
   initialSpec,
   onSubmit,
   onCancel,
@@ -312,6 +319,9 @@ export function FlagEditor({
   availableWidth,
   model,
 }: FlagEditorProps): React.ReactElement {
+  // Drop the Name row when editing a model's inline flags so it isn't in the
+  // tab order; all field navigation below indexes into this list.
+  const fields = showName ? FIELDS : FIELDS.filter((f) => f.id !== "name");
   const [values, setValues] = useState<TextValues>({
     name: initialName,
     model: initialSpec.model,
@@ -386,7 +396,7 @@ export function FlagEditor({
   };
 
   useInput((input, key) => {
-    const field = FIELDS[focus];
+    const field = fields[focus];
     if (!field) return;
 
     if (key.escape) {
@@ -398,11 +408,11 @@ export function FlagEditor({
       return;
     }
     if (key.tab || key.downArrow) {
-      setFocus((f) => (f + 1) % FIELDS.length);
+      setFocus((f) => (f + 1) % fields.length);
       return;
     }
     if (key.upArrow) {
-      setFocus((f) => (f - 1 + FIELDS.length) % FIELDS.length);
+      setFocus((f) => (f - 1 + fields.length) % fields.length);
       return;
     }
 
@@ -492,17 +502,17 @@ export function FlagEditor({
   // the scroll indicator.
   const capacity =
     availableHeight != null ? Math.max(1, availableHeight - 6) : undefined;
-  const scrolling = capacity != null && FIELDS.length > capacity;
+  const scrolling = capacity != null && fields.length > capacity;
   const { start, end } = scrolling
-    ? windowSlice(FIELDS.length, focus, Math.max(1, capacity - 1))
-    : { start: 0, end: FIELDS.length };
-  const visibleFields = FIELDS.slice(start, end);
+    ? windowSlice(fields.length, focus, Math.max(1, capacity - 1))
+    : { start: 0, end: fields.length };
+  const visibleFields = fields.slice(start, end);
   const hiddenAbove = start;
-  const hiddenBelow = FIELDS.length - end;
+  const hiddenBelow = fields.length - end;
 
   // The side panel describes the highlighted field. Only show it when the
   // terminal is wide enough to spare the columns; otherwise stay single-column.
-  const focusedField = FIELDS[focus]!;
+  const focusedField = fields[focus]!;
   const info = INFO[focusedField.id];
   const showInfo = (availableWidth ?? 0) >= 56;
   const infoWidth = Math.max(24, Math.min(46, Math.floor((availableWidth ?? 80) * 0.42)));

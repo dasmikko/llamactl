@@ -54,7 +54,11 @@ export interface UseDaemon {
   connecting: boolean;
   start(req: StartRequest): Promise<void>;
   stop(model: string): Promise<void>;
-  createInstance(name: string | undefined, spec: LaunchSpec): Promise<void>;
+  createInstance(
+    name: string | undefined,
+    spec: LaunchSpec,
+    id?: string,
+  ): Promise<void>;
   updateInstance(
     id: string,
     patch: { name?: string; spec?: LaunchSpec },
@@ -201,9 +205,9 @@ export function useDaemon(config: Config): UseDaemon {
   );
 
   const createInstance = useCallback(
-    (name: string | undefined, spec: LaunchSpec) =>
+    (name: string | undefined, spec: LaunchSpec, id?: string) =>
       runMutation((conn) =>
-        conn.request<InstanceConfig>("POST", "/instances", { name, spec }),
+        conn.request<InstanceConfig>("POST", "/instances", { id, name, spec }),
       ),
     [runMutation],
   );
