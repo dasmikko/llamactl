@@ -136,8 +136,27 @@ describe("buildRows", () => {
       null,
       new Set(["p"]),
     );
-    // The favorited profile floats above the plain model rows.
-    expect(rows[0]!.key).toBe("i:p");
+    // Favoriting a profile floats its whole group (its model + the profile)
+    // above the plain model rows, keeping them together: base before profile.
+    expect(rows.map((r) => r.key)).toEqual(["m:a", "i:p", "m:b"]);
     expect(rows[0]!.isFavorite).toBe(true);
+    expect(rows[1]!.isFavorite).toBe(true);
+    expect(rows[2]!.isFavorite).toBe(false);
+  });
+
+  test("favoriting a model floats its profiles up with it", () => {
+    const rows = buildRows(
+      [model("a"), model("b")],
+      [instance("p", "a", "prof")],
+      [],
+      null,
+      new Set(["a"]),
+    );
+    // Starring the model carries its additional profile into the favorites
+    // group rather than leaving it behind in the catalog.
+    expect(rows.map((r) => r.key)).toEqual(["m:a", "i:p", "m:b"]);
+    expect(rows[0]!.isFavorite).toBe(true);
+    expect(rows[1]!.isFavorite).toBe(true);
+    expect(rows[2]!.isFavorite).toBe(false);
   });
 });

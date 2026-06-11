@@ -99,6 +99,20 @@ export function buildRows(
     else extras.push(inst);
   }
 
+  // A favorite is tracked per group, not per row: starring a model floats its
+  // additional profiles up with it (and starring a profile floats its model),
+  // so a model and its profiles never get split across the favorites/catalog
+  // sections. A group is a favorite if its model id, or any of its profiles'
+  // ids, is in the favorites set.
+  const favoriteGroups = new Set<string>();
+  for (const m of models) if (favorites.has(m.id)) favoriteGroups.add(m.id);
+  for (const inst of instances) {
+    const parent = modelById.get(inst.spec.model);
+    const groupId = parent ? parent.id : inst.id;
+    if (favorites.has(inst.id) || favorites.has(groupId))
+      favoriteGroups.add(groupId);
+  }
+
   const rows: Row[] = [];
 
   // One base row per discovered model, carrying its inline config (if any).
@@ -121,7 +135,7 @@ export function buildRows(
       isExtraProfile: false,
       running: run,
       stats: stat,
-      isFavorite: favorites.has(m.id),
+      isFavorite: favoriteGroups.has(m.id),
     });
   }
 
@@ -143,7 +157,7 @@ export function buildRows(
       isExtraProfile: true,
       running: undefined,
       stats: undefined,
-      isFavorite: favorites.has(inst.id),
+      isFavorite: favoriteGroups.has(parent ? parent.id : inst.id),
     });
   }
 
@@ -165,7 +179,7 @@ export function buildRows(
       isExtraProfile: false,
       running: r,
       stats: stat,
-      isFavorite: favorites.has(r.modelId),
+      isFavorite: favoriteGroups.has(r.modelId),
     });
   }
 
