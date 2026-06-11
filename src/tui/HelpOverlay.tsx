@@ -27,7 +27,7 @@ const BINDINGS: Binding[] = [
   { keys: "o", desc: "open a running instance's web UI in the browser" },
   { keys: "p", desc: "pull a model from Hugging Face (search / browse)" },
   { keys: "P", desc: "manage downloads (r retry/resume · c cancel · d dismiss)" },
-  { keys: "I", desc: "view managed llama.cpp installs (Enter set active/view log · l log · r rename · c cancel · d remove install or failed build)" },
+  { keys: "I", desc: "view managed llama.cpp installs (Enter set active/view log · l log · r rename · u update+recompile · c cancel · d remove)" },
   { keys: "B", desc: "build a managed llama.cpp install from source" },
   { keys: "/", desc: "filter the list" },
   { keys: "?", desc: "toggle this help" },

@@ -14,6 +14,7 @@ import type {
   HfRepo,
   HfSearchResponse,
   InstallsResponse,
+  InstallUpdateRequest,
   InstanceConfig,
   InstancesResponse,
   LaunchSpec,
@@ -556,6 +557,8 @@ export async function cmdInstall(args: ParsedArgs, config: Config, mode: OutputM
     case "rename":
     case "name":
       return cmdInstallRename(args, config, mode);
+    case "update":
+      return cmdInstallUpdate(args, config, mode);
     case "log":
     case "logs":
       return cmdInstallLog(args, config, mode);
@@ -679,6 +682,36 @@ async function cmdInstallRename(args: ParsedArgs, config: Config, mode: OutputMo
     return 0;
   }
   emitLine(`Renamed install "${id}" to "${name.trim()}".`);
+  return 0;
+}
+
+async function cmdInstallUpdate(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const id = args.positionals[2];
+  if (!id) throw new LlamactlError("bad_request", "usage: llamactl install update <id>");
+
+  const backend = strOpt(args, "backend");
+  if (backend !== undefined && backend !== "cpu" && backend !== "cuda") {
+    throw new LlamactlError("bad_request", `--backend must be "cpu" or "cuda"`);
+  }
+  const body: InstallUpdateRequest = {};
+  if (backend !== undefined) body.backend = backend as LlamaBackend;
+  const cudaHost = strOpt(args, "cuda-host-compiler");
+  if (cudaHost !== undefined) body.cudaHostCompiler = cudaHost;
+  if (boolOpt(args, "allow-unsupported-compiler")) body.allowUnsupportedCompiler = true;
+
+  const conn = await connectDaemon({ config });
+  const res = await conn.request<InstallsResponse>(
+    "POST",
+    `/installs/${encodeURIComponent(id)}/update`,
+    body,
+  );
+
+  if (mode.json) {
+    emitJson(res);
+    return 0;
+  }
+  emitLine(`Updating "${id}" — fetching latest code and recompiling.`);
+  emitLine("Track progress with: llamactl install list");
   return 0;
 }
 

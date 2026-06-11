@@ -126,6 +126,7 @@ function App({ config }: AppProps): React.ReactElement {
     setActiveInstall,
     removeInstall,
     renameInstall,
+    updateInstall,
     restartDaemon,
   } = daemon;
 
@@ -549,6 +550,7 @@ function App({ config }: AppProps): React.ReactElement {
               setRenameTarget({ id, name });
               setMode("renameinstall");
             }}
+            onUpdate={(id) => void updateInstall(id)}
             onBuild={() => setMode("build")}
             onClose={() => setMode("table")}
           />
@@ -695,6 +697,7 @@ function InstallsView({
   onRemove,
   onViewLog,
   onRename,
+  onUpdate,
   onBuild,
   onClose,
 }: {
@@ -705,6 +708,7 @@ function InstallsView({
   onRemove: (id: string) => void;
   onViewLog: (logPath: string, title: string) => void;
   onRename: (id: string, name: string) => void;
+  onUpdate: (id: string) => void;
   onBuild: () => void;
   onClose: () => void;
 }): React.ReactElement {
@@ -750,6 +754,10 @@ function InstallsView({
     }
     if (input === "r" && selInstall) {
       onRename(selInstall.id, selInstall.name);
+      return;
+    }
+    if (input === "u" && selInstall) {
+      onUpdate(selInstall.id);
       return;
     }
     if (input === "d") {

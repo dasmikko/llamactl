@@ -165,7 +165,7 @@ function InstallsImpl({
 
       <Box marginTop={1}>
         <Text dimColor>
-          j/k move · Enter set active / view log · l log · r rename · c cancel build · d remove · B build · Esc close
+          j/k move · Enter set active / view log · l log · r rename · u update · c cancel · d remove · B build · Esc close
         </Text>
       </Box>
     </Box>

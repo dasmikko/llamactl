@@ -47,6 +47,8 @@ interface Entry {
   record: BuildJob;
   /** Aborts the build (and its child process) when canceled. */
   controller: AbortController;
+  /** Incremental rebuild of an existing checkout (vs a fresh clone). */
+  update: boolean;
 }
 
 export class InstallManager implements IInstallManager {
@@ -127,8 +129,49 @@ export class InstallManager implements IInstallManager {
       installId: null,
       startedAt: Date.now(),
     };
-    const entry: Entry = { record, controller: new AbortController() };
+    const entry: Entry = { record, controller: new AbortController(), update: false };
     this.entries.set(id, entry);
+    this.queue.push(id);
+    this.pump();
+    return record;
+  }
+
+  update(
+    id: string,
+    overrides?: {
+      backend?: LlamaBackend;
+      cudaHostCompiler?: string | null;
+      allowUnsupportedCompiler?: boolean;
+    },
+  ): BuildJob {
+    const install = this.registry.get(id);
+    if (!install) {
+      throw new LlamactlError("install_not_found", `no install with id "${id}"`, { detail: { id } });
+    }
+    // If a build for this id is already in flight, return it rather than racing.
+    const existing = this.entries.get(id);
+    if (existing && !isTerminal(existing.record.status)) return existing.record;
+
+    const record: BuildJob = {
+      id,
+      name: install.name,
+      repo: install.repo,
+      ref: install.ref,
+      backend: overrides?.backend ?? install.backend,
+      allowUnsupportedCompiler:
+        overrides?.allowUnsupportedCompiler ?? install.allowUnsupportedCompiler ?? false,
+      cudaHostCompiler:
+        overrides?.cudaHostCompiler !== undefined
+          ? overrides.cudaHostCompiler
+          : (install.cudaHostCompiler ?? null),
+      status: "queued",
+      logTail: [],
+      logPath: this.logPathFor(id),
+      error: null,
+      installId: null,
+      startedAt: Date.now(),
+    };
+    this.entries.set(id, { record, controller: new AbortController(), update: true });
     this.queue.push(id);
     this.pump();
     return record;
@@ -268,6 +311,7 @@ export class InstallManager implements IInstallManager {
         backend: record.backend,
         allowUnsupportedCompiler: record.allowUnsupportedCompiler,
         cudaHostCompiler: record.cudaHostCompiler,
+        update: entry.update,
         installDir,
         runner: this.runner,
         signal: controller.signal,
@@ -286,6 +330,8 @@ export class InstallManager implements IInstallManager {
         backend: record.backend,
         binPath: result.binPath,
         version: result.version,
+        allowUnsupportedCompiler: record.allowUnsupportedCompiler,
+        cudaHostCompiler: record.cudaHostCompiler,
         builtAt: Date.now(),
         sizeBytes: result.sizeBytes,
       };

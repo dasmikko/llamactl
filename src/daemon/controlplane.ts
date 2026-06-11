@@ -9,6 +9,7 @@ import type {
   ActiveInstallRequest,
   BuildRequest,
   InstallRenameRequest,
+  InstallUpdateRequest,
   Download,
   DownloadsResponse,
   FavoriteStore,
@@ -312,6 +313,15 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
         if (installCancelMatch && req.method === "POST") {
           const id = decodeURIComponent(installCancelMatch[1]!);
           opts.installs.cancel(id);
+          return json(installsResponse(opts.installs));
+        }
+
+        // POST /installs/:id/update — fetch the latest code for the ref and rebuild.
+        const installUpdateMatch = /^\/installs\/(.+)\/update$/.exec(path);
+        if (installUpdateMatch && req.method === "POST") {
+          const id = decodeURIComponent(installUpdateMatch[1]!);
+          const body = (await req.json().catch(() => ({}))) as InstallUpdateRequest;
+          opts.installs.update(id, body ?? undefined);
           return json(installsResponse(opts.installs));
         }
 

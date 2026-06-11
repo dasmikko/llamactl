@@ -30,6 +30,16 @@ export function parsePullRef(ref: string): string | null {
   return m ? `pull/${m[1]}/head` : null;
 }
 
+/** Whether `dir` contains a git checkout (has a `.git` entry). */
+async function isGitRepo(dir: string): Promise<boolean> {
+  try {
+    await stat(join(dir, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Thrown when a build is aborted via its signal; mapped to status "canceled". */
 export class BuildCanceledError extends Error {
   constructor() {
@@ -75,6 +85,12 @@ export interface BuildParams {
    * default compiler is too new for the CUDA toolkit.
    */
   cudaHostCompiler: string | null;
+  /**
+   * Incremental rebuild: when the install dir already has a git checkout, fetch
+   * the latest code for `ref` and reuse the existing build tree (fast recompile)
+   * instead of cloning fresh.
+   */
+  update: boolean;
   /** `<installsDir>/<id>`; this run creates `src/`, `build/`, `bin/` beneath it. */
   installDir: string;
   runner: BuildRunner;
@@ -264,10 +280,28 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
 
   await mkdir(p.installDir, { recursive: true });
 
-  // 2. Clone.
+  // 2. Acquire source.
   p.onStatus("cloning");
   const pullRef = parsePullRef(p.ref);
-  if (pullRef) {
+
+  if (p.update && (await isGitRepo(src))) {
+    // Incremental update: fetch the latest code for the ref and hard-reset onto
+    // it, keeping the build tree so the recompile is incremental.
+    const refspec = pullRef ?? p.ref;
+    p.onLine(`[llamactl] updating: fetching ${refspec}`);
+    const fetch = await runStep(p, ["git", "-C", src, "fetch", "--depth", "1", "origin", refspec]);
+    if (fetch.code !== 0) {
+      throw new LlamactlError("build_failed", `fetching ${refspec} failed (exit ${fetch.code})`, {
+        detail: { step: "fetch", code: fetch.code, ref: refspec },
+      });
+    }
+    const reset = await runStep(p, ["git", "-C", src, "reset", "--hard", "FETCH_HEAD"]);
+    if (reset.code !== 0) {
+      throw new LlamactlError("build_failed", `reset failed (exit ${reset.code})`, {
+        detail: { step: "reset", code: reset.code },
+      });
+    }
+  } else if (pullRef) {
     // GitHub PR: the head lives at refs/pull/<N>/head, which isn't a branch and
     // can't be `clone --branch`ed. Shallow-clone the default branch, then fetch
     // and check out the PR head.

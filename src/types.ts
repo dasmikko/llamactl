@@ -310,7 +310,11 @@ export interface LlamaInstall {
   binPath: string;
   /** Version reported by `llama-server --version`, or null. */
   version: string | null;
-  /** Epoch ms when the build finished. */
+  /** Whether the build passed `-allow-unsupported-compiler` (reused on update). */
+  allowUnsupportedCompiler: boolean;
+  /** Host C++ compiler the build used (`-DCMAKE_CUDA_HOST_COMPILER`), or null. */
+  cudaHostCompiler: string | null;
+  /** Epoch ms when the build finished (updated on each rebuild). */
   builtAt: number;
   /** Size on disk in bytes of the install dir, or null if unmeasured. */
   sizeBytes: number | null;
@@ -529,6 +533,17 @@ export interface InstallRenameRequest {
   name: string;
 }
 
+/**
+ * POST /installs/:id/update request body — fetch the latest code for the
+ * install's ref and recompile in place. All fields optional; each defaults to
+ * the value stored on the install.
+ */
+export interface InstallUpdateRequest {
+  backend?: LlamaBackend;
+  cudaHostCompiler?: string | null;
+  allowUnsupportedCompiler?: boolean;
+}
+
 /** GET /health response (the one unauthenticated route). */
 export interface HealthResponse {
   ok: true;
@@ -624,6 +639,20 @@ export interface IInstallManager {
    * immediately (status "queued"/"cloning"). The job's id becomes the install id.
    */
   start(req: BuildRequest): BuildJob;
+  /**
+   * Fetch the latest code for an existing install's ref and recompile it in
+   * place (reusing its stored build options, with optional overrides). Returns
+   * the tracked BuildJob (same id as the install). Throws
+   * LlamactlError("install_not_found") for an unknown id.
+   */
+  update(
+    id: string,
+    overrides?: {
+      backend?: LlamaBackend;
+      cudaHostCompiler?: string | null;
+      allowUnsupportedCompiler?: boolean;
+    },
+  ): BuildJob;
   /** Cancel an in-flight build. Throws LlamactlError("install_not_found"). */
   cancel(id: string): void;
   /**
