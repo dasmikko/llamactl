@@ -638,7 +638,21 @@ function App({ config }: AppProps): React.ReactElement {
           }}
         />
       ) : mode === "table" ? (
-        <StatusBar pending={pending} filter={filter} />
+        <StatusBar filter={filter} />
+      ) : null}
+
+      {/* Confirmation overlay: an absolutely-positioned, screen-centered modal
+          drawn on top of the normal UI so it's unmistakable. */}
+      {pending ? (
+        <Box
+          position="absolute"
+          width={columns}
+          height={screenRows}
+          justifyContent="center"
+          alignItems="center"
+        >
+          <ConfirmDialog action={pending} />
+        </Box>
       ) : null}
     </Box>
   );
@@ -866,45 +880,136 @@ function QuitOnly({ onQuit }: { onQuit: () => void }): React.ReactElement {
   return <Text> </Text>;
 }
 
+/** Title / body / confirm-key for a pending confirmation. */
+function describePending(action: NonNullable<PendingAction>): {
+  title: string;
+  message: string;
+  /** The action-specific key that confirms (shown alongside `y`). */
+  confirmKey: string;
+} {
+  switch (action.kind) {
+    case "stop-instance":
+      return {
+        title: "Stop instance",
+        message: `Stop "${action.label}"? This terminates the running llama-server.`,
+        confirmKey: "Ctrl+S",
+      };
+    case "restart-daemon":
+      return {
+        title: "Restart daemon",
+        message: "Restart the daemon? This stops ALL running instances.",
+        confirmKey: "Ctrl+R",
+      };
+    case "delete-instance":
+      return {
+        title: "Delete profile",
+        message: `Delete profile "${action.label}"?`,
+        confirmKey: "d",
+      };
+    case "delete-model":
+      return {
+        title: "Delete model from disk",
+        message: `Delete model "${action.label}" FROM DISK? This cannot be undone.`,
+        confirmKey: "D",
+      };
+  }
+}
+
+/** A run of styled text inside a dialog row. */
+interface Seg {
+  text: string;
+  color?: string;
+  bold?: boolean;
+  dim?: boolean;
+}
+
+const segLen = (segs: Seg[]): number => segs.reduce((n, s) => n + s.text.length, 0);
+
+/**
+ * Centered modal asking the user to confirm a destructive action.
+ *
+ * Ink's `<Box>` has no `backgroundColor`, and its own border is measured
+ * separately from the background-filled rows — which left the border ragged
+ * against the fill. So the entire panel (border included) is hand-drawn from
+ * `<Text>` rows that all carry the same background, guaranteeing a clean,
+ * solidly-filled rectangle. Every row is padded to a common inner width.
+ */
+function ConfirmDialog({ action }: { action: NonNullable<PendingAction> }): React.ReactElement {
+  const d = describePending(action);
+  const BG = "black";
+  const BORDER = "redBright";
+  const PAD = 2; // horizontal padding inside the border, each side
+
+  // Title bar (danger glyph + bold red heading), body, and footer lines,
+  // expressed as styled segments.
+  const titleSegs: Seg[] = [
+    { text: "● ", color: BORDER, bold: true },
+    { text: d.title, color: BORDER, bold: true },
+  ];
+  const body: Seg[][] = [
+    [{ text: d.message, color: "whiteBright" }],
+  ];
+  const footer: Seg[] = [
+    { text: `${d.confirmKey}`, color: "greenBright", bold: true },
+    { text: " / ", dim: true },
+    { text: "y", color: "greenBright", bold: true },
+    { text: "  confirm", dim: true },
+    { text: "     " },
+    { text: "Esc", color: "redBright", bold: true },
+    { text: "  cancel", dim: true },
+  ];
+
+  // Inner width = widest line (title, body, footer); the border spans that
+  // plus the horizontal padding on each side.
+  const inner = Math.max(
+    segLen(titleSegs),
+    ...body.map(segLen),
+    segLen(footer),
+  );
+  const W = inner + PAD * 2;
+
+  const horiz = "─".repeat(W);
+  const pad = (n: number): React.ReactElement => (
+    <Text backgroundColor={BG}>{" ".repeat(Math.max(0, n))}</Text>
+  );
+
+  // One interior row: left border, left pad, the segments, trailing fill so the
+  // background reaches the right border, right pad, right border.
+  const row = (segs: Seg[], key: string): React.ReactElement => (
+    <Box key={key} flexDirection="row">
+      <Text backgroundColor={BG} color={BORDER}>│</Text>
+      {pad(PAD)}
+      {segs.map((s, i) => (
+        <Text key={i} backgroundColor={BG} color={s.color} bold={s.bold} dimColor={s.dim}>
+          {s.text}
+        </Text>
+      ))}
+      {pad(inner - segLen(segs))}
+      {pad(PAD)}
+      <Text backgroundColor={BG} color={BORDER}>│</Text>
+    </Box>
+  );
+
+  return (
+    <Box flexDirection="column">
+      <Text backgroundColor={BG} color={BORDER}>{`╭${horiz}╮`}</Text>
+      {row([], "pad-top")}
+      {row(titleSegs, "title")}
+      {row([], "gap-1")}
+      {body.map((segs, i) => row(segs, `body-${i}`))}
+      {row([], "gap-2")}
+      {row(footer, "footer")}
+      {row([], "pad-bottom")}
+      <Text backgroundColor={BG} color={BORDER}>{`╰${horiz}╯`}</Text>
+    </Box>
+  );
+}
+
 interface StatusBarProps {
-  pending: PendingAction;
   filter: string;
 }
 
-function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
-  if (pending) {
-    if (pending.kind === "stop-instance") {
-      return (
-        <Box>
-          <Text color="red">
-            Stop "{pending.label}"? Press Ctrl+S or y to confirm, Esc to cancel.
-          </Text>
-        </Box>
-      );
-    }
-    if (pending.kind === "restart-daemon") {
-      return (
-        <Box>
-          <Text color="red">
-            Restart the daemon? This stops all running instances. Press Ctrl+R or
-            y to confirm, Esc to cancel.
-          </Text>
-        </Box>
-      );
-    }
-    const what =
-      pending.kind === "delete-instance"
-        ? `profile "${pending.label}"`
-        : `model "${pending.label}" FROM DISK`;
-    const key = pending.kind === "delete-instance" ? "d" : "D";
-    return (
-      <Box>
-        <Text color="red">
-          Delete {what}? Press {key} or y to confirm, Esc to cancel.
-        </Text>
-      </Box>
-    );
-  }
+function StatusBar({ filter }: StatusBarProps): React.ReactElement {
   const hint =
      "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · P downloads · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
   return (
