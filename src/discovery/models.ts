@@ -302,6 +302,22 @@ export async function discoverModels(opts?: DiscoverOptions): Promise<Model[]> {
 }
 
 /**
+ * A multimodal projector ("mmproj") file — detected as `kind: "vision"` by GGUF
+ * parsing (clip.* keys / arch "clip" / mmproj filename). It is the vision
+ * companion to a real model, passed via `--mmproj`, and isn't independently
+ * runnable, so the catalog hides it. The runnable multimodal model itself is a
+ * normal text-arch GGUF (`kind: "text"`) and stays visible.
+ */
+export function isProjector(model: Model): boolean {
+  return model.kind === "vision";
+}
+
+/** Catalog view: discovered models minus non-runnable projector files. */
+export function runnableModels(models: Model[]): Model[] {
+  return models.filter((m) => !isProjector(m));
+}
+
+/**
  * Resolve a user selector against a known model list. Match priority:
  *   1. exact id
  *   2. exact absolute path

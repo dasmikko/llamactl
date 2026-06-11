@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Model } from "../src/types.ts";
-import { createResolver, resolveModel, parseRepo } from "../src/discovery/models.ts";
+import {
+  createResolver,
+  resolveModel,
+  parseRepo,
+  isProjector,
+  runnableModels,
+} from "../src/discovery/models.ts";
 import { LlamactlError, isLlamactlError } from "../src/errors.ts";
 
 describe("parseRepo", () => {
@@ -148,5 +154,34 @@ describe("createResolver", () => {
   test("resolve throws LlamactlError on miss", () => {
     const r = createResolver(models);
     expect(() => r.resolve("nope-nope")).toThrow(LlamactlError);
+  });
+});
+
+describe("runnableModels", () => {
+  const projector: Model = {
+    id: "llava-mmproj-f16",
+    name: "LLaVA mmproj",
+    path: "/models/llava-mmproj-f16.gguf",
+    sizeBytes: 500,
+    quant: null,
+    source: "huggingface",
+    mtimeMs: 4,
+    arch: "clip",
+    contextLength: null,
+    nLayers: null,
+    kvDim: null,
+    kind: "vision",
+    org: null,
+  };
+
+  test("isProjector flags only vision (mmproj) files", () => {
+    expect(isProjector(projector)).toBe(true);
+    expect(isProjector(models[0]!)).toBe(false);
+  });
+
+  test("runnableModels drops projector files but keeps text models", () => {
+    const filtered = runnableModels([...models, projector]);
+    expect(filtered.map((m) => m.id)).not.toContain("llava-mmproj-f16");
+    expect(filtered.length).toBe(models.length);
   });
 });

@@ -20,7 +20,7 @@ import type {
   PsResponse,
 } from "../types.ts";
 import { LlamactlError, isLlamactlError } from "../errors.ts";
-import { discoverModels, resolveModel } from "../discovery/models.ts";
+import { discoverModels, resolveModel, runnableModels } from "../discovery/models.ts";
 import { modelScanPaths } from "../config/config.ts";
 import { connectDaemon, currentRuntime, clientFor } from "./../daemon/client.ts";
 import { readLiveRuntime, isProcessAlive, clearRuntime } from "../daemon/runtime.ts";
@@ -88,7 +88,9 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /* ------------------------------- list ------------------------------------ */
 
 export async function cmdList(config: Config, mode: OutputMode): Promise<number> {
-  const models = await discoverModels({ extraPaths: modelScanPaths(config) });
+  const models = runnableModels(
+    await discoverModels({ extraPaths: modelScanPaths(config) }),
+  );
   models.sort((a, b) => a.id.localeCompare(b.id));
 
   if (mode.json) {

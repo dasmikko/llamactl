@@ -31,7 +31,7 @@ import type {
 import { LlamactlError, toLlamactlError } from "../errors.ts";
 import { findFreePort } from "../net/ports.ts";
 import { searchModels, listGgufFiles } from "../hf/client.ts";
-import { deleteModelFiles } from "../discovery/models.ts";
+import { deleteModelFiles, runnableModels } from "../discovery/models.ts";
 import { constantTimeEqual } from "./runtime.ts";
 
 /** The slice of the resource sampler the control plane needs. */
@@ -166,7 +166,9 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
 
       try {
         if (path === "/models" && req.method === "GET") {
-          const body: ModelsResponse = { models: opts.models() };
+          // Catalog view hides non-runnable projector (mmproj) files; they stay
+          // in opts.models() so DELETE /models/:id can still target them.
+          const body: ModelsResponse = { models: runnableModels(opts.models()) };
           return json(body);
         }
 
