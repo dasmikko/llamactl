@@ -91,7 +91,7 @@ function InstallsImpl({
       </Box>
 
       {installs.length === 0 ? (
-        <Text dimColor>(no managed installs — press B to build one)</Text>
+        <Text dimColor>(no managed installs — press n to build one)</Text>
       ) : (
         installs.map((ins, i) => {
           const selected = i === selectedIndex;
@@ -166,7 +166,7 @@ function InstallsImpl({
 
       <Box marginTop={1}>
         <Text dimColor>
-          j/k move · Enter set active / view log · l log · r rename · u update · c cancel · d remove · B build · Esc close
+          j/k move · Enter set active / view log · l log · r rename · u update · c cancel · d remove · n new · Esc close
         </Text>
       </Box>
     </Box>

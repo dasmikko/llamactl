@@ -757,7 +757,7 @@ function InstallsView({
       onClose();
       return;
     }
-    if (input === "B") {
+    if (input === "n") {
       onBuild();
       return;
     }
