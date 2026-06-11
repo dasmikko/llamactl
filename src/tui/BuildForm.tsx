@@ -8,6 +8,7 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { BuildRequest, LlamaBackend } from "../types.ts";
+import { ShortcutBar } from "./ShortcutBar.tsx";
 
 export interface BuildFormProps {
   onSubmit: (req: BuildRequest) => void;
@@ -208,7 +209,14 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>Tab/↑↓ move · ←/→ adjust · Enter build · Esc cancel</Text>
+        <ShortcutBar
+          items={[
+            { key: "Tab/↑↓", desc: "move" },
+            { key: "←/→", desc: "adjust" },
+            { key: "Enter", desc: "build" },
+            { key: "Esc", desc: "cancel" },
+          ]}
+        />
       </Box>
     </Box>
   );

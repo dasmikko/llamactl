@@ -10,6 +10,7 @@ import type { LaunchSpec } from "../types.ts";
 import type { Row } from "./rows.ts";
 import { humanBytes, humanUptime, pct } from "./format.ts";
 import { parseRepo } from "../discovery/models.ts";
+import { ShortcutBar } from "./ShortcutBar.tsx";
 
 export interface ModelInfoProps {
   row: Row;
@@ -117,7 +118,13 @@ export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>{repo ? "Esc/i close · h HuggingFace" : "Esc or i to close"}</Text>
+        <ShortcutBar
+          items={
+            repo
+              ? [{ key: "Esc/i", desc: "close" }, { key: "h", desc: "HuggingFace" }]
+              : [{ key: "Esc/i", desc: "close" }]
+          }
+        />
       </Box>
     </Box>
   );

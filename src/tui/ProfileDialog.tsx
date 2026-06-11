@@ -14,6 +14,7 @@ import React, { useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { InstanceConfig, LaunchSpec } from "../types.ts";
 import type { Row } from "./rows.ts";
+import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
 
 export interface ProfileDialogProps {
   variant: "launch" | "manage";
@@ -115,10 +116,20 @@ export function ProfileDialog({
 
   const title =
     variant === "launch" ? `Launch  ${row.name}` : `Profiles  ${row.name}`;
-  const footer =
-    variant === "launch"
-      ? "↑↓ select · Enter launch · Esc cancel"
-      : "↑↓ select · Enter edit · n new · d delete · Esc close";
+
+  // Footer lists only what applies to the highlighted entry: the "+ New" row has
+  // nothing to delete, and Enter means different things per variant/entry.
+  const selKind = entries[sel]?.kind;
+  const footerItems: Shortcut[] = [];
+  if (entries.length > 1) footerItems.push({ key: "↑↓", desc: "select" });
+  if (variant === "launch") {
+    footerItems.push({ key: "Enter", desc: selKind === "new" ? "new + launch" : "launch" });
+  } else {
+    footerItems.push({ key: "Enter", desc: selKind === "new" ? "create" : "edit" });
+    footerItems.push({ key: "n", desc: "new" });
+    if (selKind === "profile") footerItems.push({ key: "d", desc: "delete" });
+  }
+  footerItems.push({ key: "Esc", desc: variant === "launch" ? "cancel" : "close" });
 
   return (
     <Box
@@ -153,7 +164,7 @@ export function ProfileDialog({
         })}
       </Box>
       <Box marginTop={1}>
-        <Text color={MUTED}>{footer}</Text>
+        <ShortcutBar items={footerItems} />
       </Box>
     </Box>
   );

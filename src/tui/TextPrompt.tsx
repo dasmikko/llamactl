@@ -6,6 +6,7 @@
 
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
+import { ShortcutBar } from "./ShortcutBar.tsx";
 
 export interface TextPromptProps {
   title: string;
@@ -52,7 +53,12 @@ export function TextPrompt({
         </Text>
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>Enter save · Esc cancel</Text>
+        <ShortcutBar
+          items={[
+            { key: "Enter", desc: "save" },
+            { key: "Esc", desc: "cancel" },
+          ]}
+        />
       </Box>
     </Box>
   );

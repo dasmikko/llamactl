@@ -9,6 +9,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { HfRepo, HfFile } from "../types.ts";
 import { humanBytes } from "./format.ts";
+import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
 
 type Stage = "search" | "results" | "files";
 
@@ -201,12 +202,32 @@ export function HfBrowser({
       ) : null}
 
       <Box marginTop={1}>
-        <Text dimColor>
-          {stage === "search"
-            ? "Type a query · Enter search · Esc close"
-            : "j/k move · Enter " + (stage === "results" ? "open repo" : "download") + " · Esc back"}
-        </Text>
+        <ShortcutBar items={footerShortcuts()} />
       </Box>
     </Box>
   );
+
+  /** Shortcuts usable at the current stage (and only when the list has rows). */
+  function footerShortcuts(): Shortcut[] {
+    if (stage === "search") {
+      return [
+        { key: "Enter", desc: "search" },
+        { key: "Esc", desc: "close" },
+      ];
+    }
+    const items: Shortcut[] = [];
+    if (stage === "results") {
+      if (repos.length > 0) {
+        items.push({ key: "↑↓", desc: "move" });
+        items.push({ key: "Enter", desc: "open repo" });
+      }
+    } else {
+      if (files.length > 0) {
+        items.push({ key: "↑↓", desc: "move" });
+        items.push({ key: "Enter", desc: "download" });
+      }
+    }
+    items.push({ key: "Esc", desc: "back" });
+    return items;
+  }
 }

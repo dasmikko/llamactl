@@ -6,6 +6,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
+import { ShortcutBar } from "./ShortcutBar.tsx";
 
 export interface LogViewerProps {
   logPath: string;
@@ -171,21 +172,33 @@ export function LogViewer({
         ))}
       </Box>
       <Box marginTop={1}>
-        {notice ? null : (
-          <Text dimColor>
-            {followMode ? (
-              <>
-                <Text color="green">FOLLOW</Text>
-                {" "}· Esc close · Space unfollow · ↑↓ scroll · Page Up/Down page · F follow
-              </>
-            ) : (
-              <>
-                <Text color="yellow">SCROLLED UP</Text>
-                {" "}· {lines.length - visibleCount - scrollOffset + 1}–{lines.length - scrollOffset} of {lines.length}
-                {" "}· Space follow · Esc close
-              </>
-            )}
-          </Text>
+        {notice ? null : followMode ? (
+          <Box>
+            <Text color="green">FOLLOW{"  "}</Text>
+            <ShortcutBar
+              items={[
+                { key: "Esc", desc: "close" },
+                { key: "Space", desc: "unfollow" },
+                { key: "↑↓", desc: "scroll" },
+                { key: "PgUp/Dn", desc: "page" },
+              ]}
+            />
+          </Box>
+        ) : (
+          <Box>
+            <Text color="yellow">SCROLLED UP{"  "}</Text>
+            <Text dimColor>
+              {lines.length - visibleCount - scrollOffset + 1}–{lines.length - scrollOffset} of{" "}
+              {lines.length}
+              {"  "}
+            </Text>
+            <ShortcutBar
+              items={[
+                { key: "Space", desc: "follow" },
+                { key: "Esc", desc: "close" },
+              ]}
+            />
+          </Box>
         )}
       </Box>
     </Box>

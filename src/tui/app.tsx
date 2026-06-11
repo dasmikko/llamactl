@@ -804,7 +804,7 @@ function InstallsView({
   // Context-aware footer: an install row exposes set-active/rename/update/remove;
   // a build row exposes view-log and (while in flight) cancel/dismiss.
   const shortcuts: Shortcut[] = [];
-  if (total > 0) shortcuts.push({ key: "j/k", desc: "move" });
+  if (total > 0) shortcuts.push({ key: "↑↓", desc: "move" });
   if (selInstall) {
     shortcuts.push({
       key: "Enter",
@@ -889,6 +889,18 @@ function DownloadsView({
     }
   });
 
+  // Context-aware footer: cancel only an in-flight download, retry only a
+  // failed/canceled one; dismiss any selected entry.
+  const downloadShortcuts: Shortcut[] = [];
+  if (downloads.length > 0) downloadShortcuts.push({ key: "↑↓", desc: "move" });
+  if (current) {
+    if (current.status === DL_IN_FLIGHT) downloadShortcuts.push({ key: "c", desc: "cancel" });
+    if (current.status === "error" || current.status === "canceled")
+      downloadShortcuts.push({ key: "r", desc: "retry" });
+    downloadShortcuts.push({ key: "d", desc: "dismiss" });
+  }
+  downloadShortcuts.push({ key: "Esc", desc: "close" });
+
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
       <Text bold color="magenta">
@@ -902,7 +914,7 @@ function DownloadsView({
         )}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>j/k move · r retry/resume · c cancel · d dismiss · Esc close</Text>
+        <ShortcutBar items={downloadShortcuts} />
       </Box>
     </Box>
   );

@@ -6,6 +6,7 @@
 
 import React from "react";
 import { Box, Text, useInput } from "ink";
+import { ShortcutBar } from "./ShortcutBar.tsx";
 
 export interface FilterProps {
   value: string;
@@ -47,7 +48,13 @@ export function Filter({
         {value}
         <Text inverse> </Text>
       </Text>
-      <Text dimColor>  (Enter confirm · Esc clear)</Text>
+      <Text>{"  "}</Text>
+      <ShortcutBar
+        items={[
+          { key: "Enter", desc: "confirm" },
+          { key: "Esc", desc: "clear" },
+        ]}
+      />
     </Box>
   );
 }
