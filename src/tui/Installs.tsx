@@ -8,6 +8,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { LlamaInstall, BuildJob, BuildStatus } from "../types.ts";
 import { humanBytes } from "./format.ts";
+import { useTheme, type Theme } from "./theme.ts";
 
 export interface InstallsProps {
   installs: LlamaInstall[];
@@ -21,18 +22,18 @@ export interface InstallsProps {
   width: number;
 }
 
-function buildStatusColor(status: BuildStatus): string | undefined {
+function buildStatusColor(status: BuildStatus, theme: Theme): string | undefined {
   switch (status) {
     case "ready":
-      return "green";
+      return theme.success;
     case "error":
-      return "red";
+      return theme.danger;
     case "canceled":
-      return "yellow";
+      return theme.warning;
     case "queued":
-      return "gray";
+      return theme.muted;
     default:
-      return "cyan";
+      return theme.accent;
   }
 }
 
@@ -56,16 +57,17 @@ function InstallsImpl({
   selectedBuildIndex,
   width,
 }: InstallsProps): React.ReactElement {
+  const theme = useTheme();
   // Reserve a margin so the truncated log tail never wraps the terminal.
   const tailWidth = Math.max(10, width - 6);
   return (
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="blue"
+      borderColor={theme.info}
       paddingX={1}
     >
-      <Text bold color="blue">
+      <Text bold color={theme.info}>
         MANAGED LLAMA.CPP INSTALLS
       </Text>
 
@@ -99,7 +101,7 @@ function InstallsImpl({
           return (
             <Box key={ins.id}>
               <Box width={2}>
-                <Text color="#ff8700">{active ? "★" : " "}</Text>
+                <Text color={theme.favorite}>{active ? "★" : " "}</Text>
               </Box>
               <Box width={22}>
                 <Text inverse={selected} wrap="truncate-end">
@@ -126,7 +128,7 @@ function InstallsImpl({
 
       {builds.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text bold color="magenta">
+          <Text bold color={theme.accentAlt}>
             BUILDS
           </Text>
           {builds.slice(0, 5).map((b, i) => {
@@ -147,11 +149,11 @@ function InstallsImpl({
                   </Text>
                 </Box>
                 <Box width={12}>
-                  <Text color={buildStatusColor(b.status)}>{b.status}</Text>
+                  <Text color={buildStatusColor(b.status, theme)}>{b.status}</Text>
                 </Box>
                 <Box flexGrow={1}>
                   <Text
-                    color={b.status === "error" ? "red" : undefined}
+                    color={b.status === "error" ? theme.danger : undefined}
                     dimColor={inFlight}
                     wrap="truncate-end"
                   >

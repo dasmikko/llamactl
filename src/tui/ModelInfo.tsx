@@ -10,6 +10,7 @@ import type { LaunchSpec } from "../types.ts";
 import type { Row } from "./rows.ts";
 import { humanBytes, humanUptime, pct } from "./format.ts";
 import { parseRepo } from "../discovery/models.ts";
+import { useTheme } from "./theme.ts";
 
 export interface ModelInfoProps {
   row: Row;
@@ -61,10 +62,11 @@ export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
   const { model, instance, running, stats } = row;
   const spec = running?.spec ?? instance?.spec;
   const repo = model ? parseRepo(model.path) : null;
+  const theme = useTheme();
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
+      <Text bold color={theme.accent}>
         {row.name}
       </Text>
       {repo ? (

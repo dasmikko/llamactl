@@ -12,6 +12,7 @@ import { CACHE_TYPES } from "../instances/spec.ts";
 import { estimateUsage } from "../instances/estimate.ts";
 import { humanBytes } from "./format.ts";
 import { windowSlice } from "./Table.tsx";
+import { useTheme } from "./theme.ts";
 
 export interface FlagEditorResult {
   name: string | undefined;
@@ -319,6 +320,7 @@ export function FlagEditor({
   availableWidth,
   model,
 }: FlagEditorProps): React.ReactElement {
+  const theme = useTheme();
   // Drop the Name row when editing a model's inline flags so it isn't in the
   // tab order; all field navigation below indexes into this list.
   const fields = showName ? FIELDS : FIELDS.filter((f) => f.id !== "name");
@@ -483,12 +485,12 @@ export function FlagEditor({
   ): React.ReactElement => (
     <Box key={f.id}>
       <Box width={13}>
-        <Text color={focused ? "cyan" : undefined}>
+        <Text color={focused ? theme.accent : theme.text}>
           {focused ? "› " : "  "}
           {f.label}
         </Text>
       </Box>
-      <Text color={focused ? "cyan" : undefined}>
+      <Text color={focused ? theme.accent : theme.text}>
         {focused && canLeft ? "‹ " : "  "}
         {inner}
         {focused && canRight ? " ›" : ""}
@@ -554,7 +556,7 @@ export function FlagEditor({
         return (
           <Box key={f.id}>
             <Box width={13}>
-              <Text color={focused ? "cyan" : undefined}>
+              <Text color={focused ? theme.accent : theme.text}>
                 {focused ? "› " : "  "}
                 {f.label}
               </Text>
@@ -581,7 +583,7 @@ export function FlagEditor({
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="cyan"
+      borderColor={theme.accent}
       paddingX={1}
       width={availableWidth}
     >
@@ -595,12 +597,12 @@ export function FlagEditor({
             marginLeft={2}
             paddingLeft={2}
             borderStyle="round"
-            borderColor="gray"
+            borderColor={theme.muted}
             borderTop={false}
             borderRight={false}
             borderBottom={false}
           >
-            <Text bold color="cyan">
+            <Text bold color={theme.accent}>
               {focusedField.label}
             </Text>
             <Text dimColor>{info.flag}</Text>
@@ -618,7 +620,7 @@ export function FlagEditor({
       <Box marginTop={1}>
         {estimate ? (
           <Text wrap="truncate-end">
-            <Text color="magenta">≈ </Text>
+            <Text color={theme.accentAlt}>≈ </Text>
             <Text bold>{humanBytes(estimate.vramBytes)}</Text>
             <Text dimColor> VRAM · </Text>
             <Text bold>{humanBytes(estimate.ramBytes)}</Text>

@@ -5,6 +5,7 @@
 
 import React from "react";
 import { Box, Text } from "ink";
+import { useTheme } from "./theme.ts";
 
 interface Binding {
   keys: string;
@@ -30,6 +31,7 @@ const BINDINGS: Binding[] = [
   { keys: "I", desc: "view managed llama.cpp installs (Enter set active/view log · l log · r rename · u update+recompile · c cancel · d remove)" },
   { keys: "B", desc: "build a managed llama.cpp install from source" },
   { keys: "/", desc: "filter the list" },
+  { keys: "t", desc: "cycle color theme" },
   { keys: "?", desc: "toggle this help" },
   { keys: "Ctrl+R", desc: "restart the daemon (stops all instances; confirm with Ctrl+R or y)" },
   { keys: "Esc", desc: "close a modal / clear filter" },
@@ -37,11 +39,12 @@ const BINDINGS: Binding[] = [
 ];
 
 export function HelpOverlay(): React.ReactElement {
+  const theme = useTheme();
   return (
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="green"
+      borderColor={theme.success}
       paddingX={1}
     >
       <Text bold>Keybindings</Text>
@@ -49,7 +52,7 @@ export function HelpOverlay(): React.ReactElement {
         {BINDINGS.map((b) => (
           <Box key={b.keys}>
             <Box width={14}>
-              <Text color="cyan">{b.keys}</Text>
+              <Text color={theme.accent}>{b.keys}</Text>
             </Box>
             <Text>{b.desc}</Text>
           </Box>

@@ -8,6 +8,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { Row } from "./rows.ts";
 import { pct, humanBytes, humanUptime } from "./format.ts";
+import { useTheme, type Theme } from "./theme.ts";
 
 export interface TableProps {
   rows: Row[];
@@ -154,17 +155,17 @@ const FAV_GUTTER = 2;
 /** Filled star for a favorited row; a space otherwise (keeps columns aligned). */
 const FAV_STAR = "★";
 
-function statusColor(row: Row): string | undefined {
+function statusColor(row: Row, theme: Theme): string | undefined {
   if (!row.running) return undefined;
   switch (row.running.status) {
     case "ready":
-      return "green";
+      return theme.success;
     case "starting":
-      return "yellow";
+      return theme.warning;
     case "stopping":
-      return "yellow";
+      return theme.warning;
     case "crashed":
-      return "red";
+      return theme.danger;
     default:
       return undefined;
   }
@@ -176,13 +177,15 @@ function TableImpl({
   gpuAvailable,
   now,
   title,
-  titleColor = "cyan",
+  titleColor,
   variant = "full",
   emptyText = "(none)",
   fill = false,
   width,
   maxRows,
 }: TableProps): React.ReactElement {
+  const theme = useTheme();
+  const titleCol = titleColor ?? theme.accent;
   const baseCols = COLUMNS.filter((c) => {
     if (variant === "catalog") return CATALOG_HEADERS.has(c.header);
     return !c.catalogOnly && (!c.gpuOnly || gpuAvailable);
@@ -218,11 +221,11 @@ function TableImpl({
   return (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0}>
       {title ? (
-        <Text bold color={titleColor}>
+        <Text bold color={titleCol}>
           {title}
         </Text>
       ) : null}
-      <Text bold color="gray">
+      <Text bold color={theme.muted}>
         {headerLine}
       </Text>
       {rows.length === 0 ? (
@@ -244,10 +247,10 @@ function TableImpl({
               </Text>
             );
           }
-          const sc = statusColor(row);
+          const sc = statusColor(row, theme);
           return (
             <Text key={row.key}>
-              <Text color="yellow">{star}</Text>{" "}
+              <Text color={theme.favorite}>{star}</Text>{" "}
               <Text color={sc}>{line}</Text>
             </Text>
           );

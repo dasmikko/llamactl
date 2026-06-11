@@ -6,6 +6,7 @@
 
 import React from "react";
 import { Box, Text, useInput } from "ink";
+import { useTheme } from "./theme.ts";
 
 export interface FilterProps {
   value: string;
@@ -22,6 +23,7 @@ export function Filter({
   onSubmit,
   onCancel,
 }: FilterProps): React.ReactElement {
+  const theme = useTheme();
   useInput((input, key) => {
     if (key.escape) {
       onCancel();
@@ -42,7 +44,7 @@ export function Filter({
 
   return (
     <Box>
-      <Text color="cyan">/ </Text>
+      <Text color={theme.accent}>/ </Text>
       <Text>
         {value}
         <Text inverse> </Text>

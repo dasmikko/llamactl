@@ -8,6 +8,7 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { BuildRequest, LlamaBackend } from "../types.ts";
+import { useTheme } from "./theme.ts";
 
 export interface BuildFormProps {
   onSubmit: (req: BuildRequest) => void;
@@ -43,6 +44,7 @@ const BACKENDS: readonly LlamaBackend[] = ["cpu", "cuda"];
 const REPO_PLACEHOLDER = "https://github.com/ggml-org/llama.cpp";
 
 export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactElement {
+  const theme = useTheme();
   const [repo, setRepo] = useState("");
   const [ref, setRef] = useState("");
   const [name, setName] = useState("");
@@ -135,12 +137,12 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
   ): React.ReactElement => (
     <Box key={f.id}>
       <Box width={18}>
-        <Text color={focused ? "cyan" : undefined}>
+        <Text color={focused ? theme.accent : theme.text}>
           {focused ? "› " : "  "}
           {f.label}
         </Text>
       </Box>
-      <Text color={focused ? "cyan" : undefined}>
+      <Text color={focused ? theme.accent : theme.text}>
         {focused && canLeft ? "‹ " : "  "}
         {inner}
         {focused && canRight ? " ›" : ""}
@@ -152,10 +154,10 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="blue"
+      borderColor={theme.info}
       paddingX={1}
     >
-      <Text bold color="blue">
+      <Text bold color={theme.info}>
         Build a managed llama.cpp install
       </Text>
 
@@ -189,7 +191,7 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
           return (
             <Box key={f.id}>
               <Box width={18}>
-                <Text color={focused ? "cyan" : undefined}>
+                <Text color={focused ? theme.accent : theme.text}>
                   {focused ? "› " : "  "}
                   {f.label}
                 </Text>

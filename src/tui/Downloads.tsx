@@ -7,6 +7,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { Download } from "../types.ts";
 import { bar, pct, humanBytes } from "./format.ts";
+import { useTheme, type Theme } from "./theme.ts";
 
 export interface DownloadsProps {
   downloads: Download[];
@@ -18,16 +19,16 @@ export interface DownloadsProps {
 
 const GAUGE_WIDTH = 16;
 
-function statusColor(status: Download["status"]): string | undefined {
+function statusColor(status: Download["status"], theme: Theme): string | undefined {
   switch (status) {
     case "done":
-      return "green";
+      return theme.success;
     case "error":
-      return "red";
+      return theme.danger;
     case "canceled":
-      return "yellow";
+      return theme.warning;
     default:
-      return "cyan";
+      return theme.accent;
   }
 }
 
@@ -36,6 +37,7 @@ function DownloadsImpl({
   selectedIndex = -1,
   showHeader = true,
 }: DownloadsProps): React.ReactElement | null {
+  const theme = useTheme();
   if (downloads.length === 0) return null;
   // The managed view passes a selection and wants all rows; the inline strip
   // caps at 5. (selectedIndex >= 0 ⇒ managed view.)
@@ -44,7 +46,7 @@ function DownloadsImpl({
   return (
     <Box flexDirection="column">
       {showHeader ? (
-        <Text bold color="magenta">
+        <Text bold color={theme.accentAlt}>
           DOWNLOADS
         </Text>
       ) : null}
@@ -65,14 +67,14 @@ function DownloadsImpl({
             <Box width={36}>
               <Text inverse={selected}>{label.length > 35 ? "…" + label.slice(-34) : label}</Text>
             </Box>
-            <Text color={statusColor(d.status)}>{bar(d.receivedBytes, d.totalBytes ?? 0, GAUGE_WIDTH)}</Text>
+            <Text color={statusColor(d.status, theme)}>{bar(d.receivedBytes, d.totalBytes ?? 0, GAUGE_WIDTH)}</Text>
             <Text>
               {" "}
               {d.status === "downloading" ? pct(frac * 100) : d.status}
               {"  " + size}
             </Text>
             {managed && d.status === "error" && d.error ? (
-              <Text color="red"> — {d.error}</Text>
+              <Text color={theme.danger}> — {d.error}</Text>
             ) : null}
           </Box>
         );

@@ -8,6 +8,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { LlamaServerInfo, StatsSnapshot } from "../types.ts";
 import { bar, pct, humanBytes } from "./format.ts";
+import { useTheme } from "./theme.ts";
 
 export interface ResourceHeaderProps {
   stats: StatsSnapshot | null;
@@ -34,6 +35,7 @@ function ResourceHeaderImpl({
   error,
   connected,
 }: ResourceHeaderProps): React.ReactElement {
+  const theme = useTheme();
   const sys = stats?.system;
   const cpu = sys ? clamp100(sys.cpuPct) : 0;
   const memUsed = sys?.memUsed ?? 0;
@@ -45,15 +47,15 @@ function ResourceHeaderImpl({
         <Text bold>🦙 llamactl</Text>
         <Text>  </Text>
         {connected ? (
-          <Text color="green">● connected to daemon</Text>
+          <Text color={theme.success}>● connected to daemon</Text>
         ) : (
-          <Text color="yellow">○ connecting…</Text>
+          <Text color={theme.warning}>○ connecting…</Text>
         )}
         {llamaServer?.found && llamaServer.version ? (
           <Text dimColor>{`  llama-server ${llamaServer.version}`}</Text>
         ) : null}
         {activeInstallName ? (
-          <Text color="cyan">{`  ▸ ${activeInstallName}`}</Text>
+          <Text color={theme.accent}>{`  ▸ ${activeInstallName}`}</Text>
         ) : null}
       </Box>
 
@@ -61,7 +63,7 @@ function ResourceHeaderImpl({
         <Box width={6}>
           <Text>CPU</Text>
         </Box>
-        <Text color="cyan">{bar(cpu, 100, GAUGE_WIDTH)}</Text>
+        <Text color={theme.accent}>{bar(cpu, 100, GAUGE_WIDTH)}</Text>
         <Text> {pct(cpu)}</Text>
         {sys?.tempC != null ? <Text>{`  ${sys.tempC}°C`}</Text> : null}
       </Box>
@@ -70,7 +72,7 @@ function ResourceHeaderImpl({
         <Box width={6}>
           <Text>RAM</Text>
         </Box>
-        <Text color="cyan">{bar(memUsed, memTotal, GAUGE_WIDTH)}</Text>
+        <Text color={theme.accent}>{bar(memUsed, memTotal, GAUGE_WIDTH)}</Text>
         <Text>
           {" "}
           {humanBytes(memUsed)} / {humanBytes(memTotal)}
@@ -87,7 +89,7 @@ function ResourceHeaderImpl({
                   <Box width={6}>
                     <Text>GPU{g.index}</Text>
                   </Box>
-                  <Text color="magenta">{bar(clamp100(g.utilPct), 100, GAUGE_WIDTH)}</Text>
+                  <Text color={theme.accentAlt}>{bar(clamp100(g.utilPct), 100, GAUGE_WIDTH)}</Text>
                   <Text>
                     {" "}
                     {pct(g.utilPct)}
@@ -98,7 +100,7 @@ function ResourceHeaderImpl({
                   <Box width={6}>
                     <Text>{vramLabel}</Text>
                   </Box>
-                  <Text color="blue">{bar(g.vramUsed, g.vramTotal, GAUGE_WIDTH)}</Text>
+                  <Text color={theme.info}>{bar(g.vramUsed, g.vramTotal, GAUGE_WIDTH)}</Text>
                   <Text>
                     {" "}
                     {humanBytes(g.vramUsed)} / {humanBytes(g.vramTotal)}
@@ -111,7 +113,7 @@ function ResourceHeaderImpl({
 
       {llamaServer && !llamaServer.found ? (
         <Box>
-          <Text color="red">
+          <Text color={theme.danger}>
             ⚠ llama-server not found ({llamaServer.path}) — set llamaServerPath or add it to PATH
           </Text>
         </Box>
@@ -119,7 +121,7 @@ function ResourceHeaderImpl({
 
       {error ? (
         <Box>
-          <Text color="red">⚠ {error}</Text>
+          <Text color={theme.danger}>⚠ {error}</Text>
         </Box>
       ) : null}
     </Box>

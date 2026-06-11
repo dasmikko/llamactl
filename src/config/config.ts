@@ -25,6 +25,7 @@ export function defaultConfig(): Config {
     llamaServerArgs: [],
     downloadDir: hfHubCacheDir(),
     hfToken: null,
+    theme: "default",
   };
 }
 
@@ -39,6 +40,7 @@ export type PartialConfig = {
   llamaServerArgs?: string[];
   downloadDir?: string;
   hfToken?: string | null;
+  theme?: string;
 };
 
 /** Deep-merge a single override layer onto a base config. */
@@ -55,6 +57,7 @@ export function mergeConfig(base: Config, over: PartialConfig): Config {
     llamaServerArgs: over.llamaServerArgs ?? base.llamaServerArgs,
     downloadDir: over.downloadDir ?? base.downloadDir,
     hfToken: over.hfToken !== undefined ? over.hfToken : base.hfToken,
+    theme: over.theme ?? base.theme,
   };
 }
 
@@ -86,6 +89,8 @@ export function configFromEnv(env: Record<string, string | undefined>): PartialC
   if (dl !== undefined && dl.length > 0) out.downloadDir = dl;
   const tok = env.LLAMACTL_HF_TOKEN;
   if (tok !== undefined && tok.length > 0) out.hfToken = tok;
+  const theme = env.LLAMACTL_THEME;
+  if (theme !== undefined && theme.length > 0) out.theme = theme;
   return out;
 }
 
@@ -107,6 +112,21 @@ export async function loadConfigFile(path = configPath()): Promise<PartialConfig
   } catch (e) {
     throw new Error(`config file at ${path} is not valid JSON: ${(e as Error).message}`);
   }
+}
+
+/**
+ * Persist a few fields back to the JSON config file, merging onto whatever is
+ * already there (so unrelated keys and hand-written settings are preserved).
+ * Used by the TUI to remember user choices like the active theme. Best-effort:
+ * the caller decides how to surface a write failure.
+ */
+export async function updateConfigFile(
+  patch: PartialConfig,
+  path = configPath(),
+): Promise<void> {
+  const existing = await loadConfigFile(path);
+  const merged = { ...existing, ...patch };
+  await Bun.write(path, JSON.stringify(merged, null, 2) + "\n");
 }
 
 /**

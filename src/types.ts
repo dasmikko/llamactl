@@ -165,6 +165,8 @@ export interface Config {
   downloadDir: string;
   /** Hugging Face token for gated/private repos, or null to use the HF cache. */
   hfToken: string | null;
+  /** Name of the active TUI color theme (see src/tui/theme.ts). */
+  theme: string;
 }
 
 /** Contents of `runtime.json` — how the CLI finds and authenticates to the daemon. */

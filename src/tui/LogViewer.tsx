@@ -6,6 +6,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
+import { useTheme } from "./theme.ts";
 
 export interface LogViewerProps {
   logPath: string;
@@ -45,6 +46,7 @@ export function LogViewer({
   title,
   onClose,
 }: LogViewerProps): React.ReactElement {
+  const theme = useTheme();
   const [lines, setLines] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>("loading…");
   const [scrollOffset, setScrollOffset] = useState(0); // 0 = at bottom
@@ -150,7 +152,7 @@ export function LogViewer({
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="yellow"
+      borderColor={theme.warning}
       paddingX={1}
       flexGrow={1}
     >
@@ -175,12 +177,12 @@ export function LogViewer({
           <Text dimColor>
             {followMode ? (
               <>
-                <Text color="green">FOLLOW</Text>
+                <Text color={theme.success}>FOLLOW</Text>
                 {" "}· Esc close · Space unfollow · ↑↓ scroll · Page Up/Down page · F follow
               </>
             ) : (
               <>
-                <Text color="yellow">SCROLLED UP</Text>
+                <Text color={theme.warning}>SCROLLED UP</Text>
                 {" "}· {lines.length - visibleCount - scrollOffset + 1}–{lines.length - scrollOffset} of {lines.length}
                 {" "}· Space follow · Esc close
               </>

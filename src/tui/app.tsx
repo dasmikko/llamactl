@@ -32,6 +32,16 @@ import { BuildForm } from "./BuildForm.tsx";
 import { TextPrompt } from "./TextPrompt.tsx";
 import { ModelInfo } from "./ModelInfo.tsx";
 import { openInBrowser } from "./browser.ts";
+import {
+  ThemeContext,
+  useTheme,
+  resolveTheme,
+  nextTheme,
+  applyThemeBackground,
+  resetThemeBackground,
+  type Theme,
+} from "./theme.ts";
+import { updateConfigFile } from "../config/config.ts";
 
 type Mode =
   | "table"
@@ -130,6 +140,10 @@ function App({ config }: AppProps): React.ReactElement {
     restartDaemon,
   } = daemon;
 
+  // Active color theme. Seeded from config; cycled live with `t` and persisted
+  // back to the config file so the choice sticks across launches.
+  const [theme, setTheme] = useState<Theme>(() => resolveTheme(config.theme));
+
   const [mode, setMode] = useState<Mode>("table");
   // Selection is tracked by the row's unique key (not its index) so the cursor
   // follows a row when the list re-sorts — e.g. when a started model jumps to
@@ -150,6 +164,14 @@ function App({ config }: AppProps): React.ReactElement {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Paint the terminal background to match the active theme (whole screen, incl.
+  // the gaps Ink leaves between widgets). Re-applies whenever the theme's bg
+  // changes; restores the terminal's native background on unmount.
+  useEffect(() => {
+    applyThemeBackground(theme);
+    return () => resetThemeBackground();
+  }, [theme.bg]);
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   // Name of the active managed install (if any), shown in the header.
@@ -324,6 +346,16 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
 
+      if (input === "t") {
+        // Cycle the color theme and remember it. Persisting is best-effort: the
+        // live recolor always happens; a failed write just won't survive a
+        // restart, which isn't worth interrupting the UI for.
+        const next = resolveTheme(nextTheme(theme.name));
+        setTheme(next);
+        void updateConfigFile({ theme: next.name }).catch(() => {});
+        return;
+      }
+
       if (input === "I") {
         // Capital I: open the managed-installs view (lowercase i is model info).
         setMode("installs");
@@ -439,16 +471,18 @@ function App({ config }: AppProps): React.ReactElement {
   // Connection error screen: clear message + quit hint, never a crash.
   if (!connected && !connecting) {
     return (
-      <Box flexDirection="column" width={columns} height={screenRows} padding={1}>
-        <Text color="red" bold>
-          Could not connect to the llamactl daemon.
-        </Text>
-        {error ? <Text color="red">{error}</Text> : null}
-        <Box marginTop={1}>
-          <Text dimColor>Press q to quit.</Text>
+      <ThemeContext.Provider value={theme}>
+        <Box flexDirection="column" width={columns} height={screenRows} padding={1}>
+          <Text color={theme.danger} bold>
+            Could not connect to the llamactl daemon.
+          </Text>
+          {error ? <Text color={theme.danger}>{error}</Text> : null}
+          <Box marginTop={1}>
+            <Text dimColor>Press q to quit.</Text>
+          </Box>
+          <QuitOnly onQuit={exit} />
         </Box>
-        <QuitOnly onQuit={exit} />
-      </Box>
+      </ThemeContext.Provider>
     );
   }
 
@@ -478,6 +512,7 @@ function App({ config }: AppProps): React.ReactElement {
   // Full-screen layout: fixed header, a growing body that fills the terminal,
   // and a footer pinned to the bottom row.
   return (
+    <ThemeContext.Provider value={theme}>
     <Box flexDirection="column" width={columns} height={screenRows}>
       <ResourceHeader
         stats={stats}
@@ -590,7 +625,7 @@ function App({ config }: AppProps): React.ReactElement {
               <Box marginTop={1}>
                 <Table
                   title="★ FAVORITES"
-                  titleColor="#ff8700"
+                  titleColor={theme.favorite}
                   variant="catalog"
                   rows={favoriteRows}
                   selectedIndex={
@@ -655,6 +690,7 @@ function App({ config }: AppProps): React.ReactElement {
         </Box>
       ) : null}
     </Box>
+    </ThemeContext.Provider>
   );
 }
 
@@ -853,9 +889,10 @@ function DownloadsView({
     }
   });
 
+  const theme = useTheme();
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
-      <Text bold color="magenta">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accentAlt} paddingX={1}>
+      <Text bold color={theme.accentAlt}>
         MANAGE DOWNLOADS
       </Text>
       <Box marginTop={1} flexDirection="column">
@@ -935,14 +972,15 @@ const segLen = (segs: Seg[]): number => segs.reduce((n, s) => n + s.text.length,
  */
 function ConfirmDialog({ action }: { action: NonNullable<PendingAction> }): React.ReactElement {
   const d = describePending(action);
-  // Explicit hex colors (truecolor) so the panel looks the same on every
-  // terminal — ANSI "black" maps to a washed-out gray on many themes, which is
-  // why a plain `backgroundColor:"black"` read as a low-contrast gray box.
-  const BG = "#1b1e26"; // dark slate panel fill
-  const BORDER = "#ff6b6b"; // red frame + danger accents
-  const TEXT = "#eef1f6"; // primary message text
-  const MUTED = "#9aa3b2"; // secondary / label text
-  const CONFIRM = "#7ee787"; // confirm-key accent (green)
+  // The dialog hand-paints a solid filled panel, so it needs concrete colors
+  // (not "use the terminal default"); the active theme supplies a dedicated
+  // dialog palette tuned for that — fill, frame, text, and the confirm accent.
+  const theme = useTheme();
+  const BG = theme.dialog.bg; // panel fill
+  const BORDER = theme.dialog.border; // frame + danger accents
+  const TEXT = theme.dialog.text; // primary message text
+  const MUTED = theme.dialog.muted; // secondary / label text
+  const CONFIRM = theme.dialog.confirm; // confirm-key accent
   const PAD = 2; // horizontal padding inside the border, each side
 
   // Title bar (danger glyph + bold red heading), body, and footer lines,
@@ -1015,12 +1053,13 @@ interface StatusBarProps {
 }
 
 function StatusBar({ filter }: StatusBarProps): React.ReactElement {
+  const theme = useTheme();
   const hint =
-     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · P downloads · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
+     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · P downloads · I installs · B build · / filter · t theme · ? help · Ctrl+R restart · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>
-      {filter ? <Text color="cyan">{`  [filter: ${filter}]`}</Text> : null}
+      {filter ? <Text color={theme.accent}>{`  [filter: ${filter}]`}</Text> : null}
     </Box>
   );
 }
@@ -1045,6 +1084,10 @@ export async function runTui(config: Config): Promise<void> {
   } catch {
     // Some exit paths (e.g. SIGINT) reject waitUntilExit; treat as a normal quit.
   } finally {
+    // Restore the terminal's native background before leaving the alt screen, so
+    // a themed background never leaks into the user's shell (belt-and-suspenders
+    // alongside the App effect's cleanup, which an abrupt exit may skip).
+    resetThemeBackground();
     if (isTty) process.stdout.write(LEAVE_ALT_SCREEN);
   }
 }

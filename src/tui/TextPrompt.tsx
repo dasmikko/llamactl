@@ -6,6 +6,7 @@
 
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
+import { useTheme } from "./theme.ts";
 
 export interface TextPromptProps {
   title: string;
@@ -22,6 +23,7 @@ export function TextPrompt({
   onCancel,
 }: TextPromptProps): React.ReactElement {
   const [value, setValue] = useState(initialValue);
+  const theme = useTheme();
 
   useInput((input, key) => {
     if (key.escape) {
@@ -42,8 +44,8 @@ export function TextPrompt({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
+      <Text bold color={theme.accent}>
         {title}
       </Text>
       <Box marginTop={1}>

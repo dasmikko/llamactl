@@ -9,6 +9,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { HfRepo, HfFile } from "../types.ts";
 import { humanBytes } from "./format.ts";
+import { useTheme } from "./theme.ts";
 
 type Stage = "search" | "results" | "files";
 
@@ -45,6 +46,7 @@ export function HfBrowser({
   const [fileIdx, setFileIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const theme = useTheme();
 
   const runSearch = async (): Promise<void> => {
     if (query.trim() === "") return;
@@ -130,12 +132,12 @@ export function HfBrowser({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
-      <Text bold color="magenta">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accentAlt} paddingX={1}>
+      <Text bold color={theme.accentAlt}>
         Hugging Face {stage === "search" ? "search" : stage === "results" ? `· results for "${query}"` : `· ${repo}`}
       </Text>
 
-      {err ? <Text color="red">⚠ {err}</Text> : null}
+      {err ? <Text color={theme.danger}>⚠ {err}</Text> : null}
       {busy ? <Text dimColor>working…</Text> : null}
 
       {stage === "search" ? (
