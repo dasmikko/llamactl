@@ -14,6 +14,7 @@ function cfg(overrides: Partial<Config> = {}): Config {
     llamaServerArgs: [],
     downloadDir: "/tmp/llamactl-test-dl",
     hfToken: null,
+    theme: "default",
     ...overrides,
   };
 }
