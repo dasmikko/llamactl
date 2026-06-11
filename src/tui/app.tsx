@@ -936,8 +936,14 @@ const segLen = (segs: Seg[]): number => segs.reduce((n, s) => n + s.text.length,
  */
 function ConfirmDialog({ action }: { action: NonNullable<PendingAction> }): React.ReactElement {
   const d = describePending(action);
-  const BG = "black";
-  const BORDER = "redBright";
+  // Explicit hex colors (truecolor) so the panel looks the same on every
+  // terminal — ANSI "black" maps to a washed-out gray on many themes, which is
+  // why a plain `backgroundColor:"black"` read as a low-contrast gray box.
+  const BG = "#1b1e26"; // dark slate panel fill
+  const BORDER = "#ff6b6b"; // red frame + danger accents
+  const TEXT = "#eef1f6"; // primary message text
+  const MUTED = "#9aa3b2"; // secondary / label text
+  const CONFIRM = "#7ee787"; // confirm-key accent (green)
   const PAD = 2; // horizontal padding inside the border, each side
 
   // Title bar (danger glyph + bold red heading), body, and footer lines,
@@ -947,16 +953,16 @@ function ConfirmDialog({ action }: { action: NonNullable<PendingAction> }): Reac
     { text: d.title, color: BORDER, bold: true },
   ];
   const body: Seg[][] = [
-    [{ text: d.message, color: "whiteBright" }],
+    [{ text: d.message, color: TEXT }],
   ];
   const footer: Seg[] = [
-    { text: `${d.confirmKey}`, color: "greenBright", bold: true },
-    { text: " / ", dim: true },
-    { text: "y", color: "greenBright", bold: true },
-    { text: "  confirm", dim: true },
+    { text: `${d.confirmKey}`, color: CONFIRM, bold: true },
+    { text: " / ", color: MUTED },
+    { text: "y", color: CONFIRM, bold: true },
+    { text: "  confirm", color: MUTED },
     { text: "     " },
-    { text: "Esc", color: "redBright", bold: true },
-    { text: "  cancel", dim: true },
+    { text: "Esc", color: BORDER, bold: true },
+    { text: "  cancel", color: MUTED },
   ];
 
   // Inner width = widest line (title, body, footer); the border spans that
