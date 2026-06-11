@@ -29,8 +29,12 @@ export interface SupervisorOptions {
   resolver: ModelResolver;
   /** Per-launch logs go here. */
   logsDir: string;
-  /** Already-resolved binary path to spawn. */
-  llamaServerPath: string;
+  /**
+   * The `llama-server` binary to spawn. A bare string is fixed; a getter is
+   * re-read on every spawn/probe so switching the active managed install takes
+   * effect for new (re)starts without restarting the daemon.
+   */
+  llamaServerPath: string | (() => string);
   /** Prepended to argv (default []); tests use [process.execPath]. */
   spawnPrefix?: string[];
   /** First port to try when assigning a child a loopback port. Default 18000. */
@@ -69,7 +73,8 @@ export class Supervisor implements ISupervisor {
   private readonly config: Config;
   private readonly resolver: ModelResolver;
   private readonly logsDir: string;
-  private readonly llamaServerPath: string;
+  /** Re-read on each spawn/probe so an active-install switch is picked up. */
+  private readonly resolveBin: () => string;
   private readonly spawnPrefix: string[];
   private readonly portBase: number;
   private readonly retryCap: number;
@@ -78,14 +83,17 @@ export class Supervisor implements ISupervisor {
 
   private readonly children = new Map<string, Entry>();
   private shuttingDown = false;
-  /** Cached `llama-server` probe (availability + version; the binary is fixed). */
-  private serverProbe?: Promise<LlamaServerInfo>;
+  /** Cached `llama-server` probes, keyed by resolved binary path (it can change). */
+  private readonly serverProbes = new Map<string, Promise<LlamaServerInfo>>();
 
   constructor(opts: SupervisorOptions) {
     this.config = opts.config;
     this.resolver = opts.resolver;
     this.logsDir = opts.logsDir;
-    this.llamaServerPath = opts.llamaServerPath;
+    this.resolveBin =
+      typeof opts.llamaServerPath === "function"
+        ? opts.llamaServerPath
+        : () => opts.llamaServerPath as string;
     this.spawnPrefix = opts.spawnPrefix ?? [];
     this.portBase = opts.portBase ?? 18000;
     this.retryCap = opts.retryCap ?? 3;
@@ -116,11 +124,12 @@ export class Supervisor implements ISupervisor {
     // Only validate the path when it looks like a filesystem path (not a bare
     // command resolved from PATH). Absolute or explicitly relative paths must
     // exist; a bare binary name is left to spawn to resolve.
-    if (this.looksLikePath(this.llamaServerPath) && !existsSync(this.llamaServerPath)) {
+    const bin = this.resolveBin();
+    if (this.looksLikePath(bin) && !existsSync(bin)) {
       throw new LlamactlError(
         "llama_server_missing",
-        `llama-server binary not found at "${this.llamaServerPath}".`,
-        { detail: { path: this.llamaServerPath } },
+        `llama-server binary not found at "${bin}".`,
+        { detail: { path: bin } },
       );
     }
 
@@ -248,22 +257,26 @@ export class Supervisor implements ISupervisor {
    * cached — the resolved binary doesn't change over the daemon's lifetime.
    */
   serverInfo(): Promise<LlamaServerInfo> {
-    if (!this.serverProbe) this.serverProbe = this.probeServer();
-    return this.serverProbe;
+    const bin = this.resolveBin();
+    let probe = this.serverProbes.get(bin);
+    if (!probe) {
+      probe = this.probeServer(bin);
+      this.serverProbes.set(bin, probe);
+    }
+    return probe;
   }
 
-  private async probeServer(): Promise<LlamaServerInfo> {
-    const path = this.llamaServerPath;
+  private async probeServer(path: string): Promise<LlamaServerInfo> {
     // A path-like value must exist on disk; a bare command is looked up on PATH.
     const found = this.looksLikePath(path) ? existsSync(path) : Bun.which(path) !== null;
     if (!found) return { path, found: false };
-    return { path, found: true, version: await this.runVersionProbe() };
+    return { path, found: true, version: await this.runVersionProbe(path) };
   }
 
-  private async runVersionProbe(): Promise<string | undefined> {
+  private async runVersionProbe(bin: string): Promise<string | undefined> {
     try {
       const proc = Bun.spawn({
-        cmd: [...this.spawnPrefix, this.llamaServerPath, "--version"],
+        cmd: [...this.spawnPrefix, bin, "--version"],
         env: { ...process.env },
         stdout: "pipe",
         stderr: "pipe",
@@ -297,7 +310,7 @@ export class Supervisor implements ISupervisor {
 
     const cmd = [
       ...this.spawnPrefix,
-      this.llamaServerPath,
+      this.resolveBin(),
       ...specToArgs({ modelPath: model.path, port, spec, configArgs: this.config.llamaServerArgs }),
     ];
 
@@ -405,7 +418,7 @@ export class Supervisor implements ISupervisor {
     const logPath = join(this.logsDir, `${entry.resolved.id}-${startedAt}.log`);
     const cmd = [
       ...this.spawnPrefix,
-      this.llamaServerPath,
+      this.resolveBin(),
       ...specToArgs({
         modelPath: entry.resolved.path,
         port,

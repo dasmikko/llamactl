@@ -51,6 +51,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     modelPaths: [],
     controlPort: 48134,
     llamaServerPath: null,
+    activeInstall: null,
     defaultCtx: 2048,
     defaultGpuLayers: 99,
     llamaServerArgs: [],

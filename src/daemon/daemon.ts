@@ -12,18 +12,24 @@ import { Sampler } from "../monitor/sampler.ts";
 import { loadInstanceStore } from "../instances/store.ts";
 import { loadFavoriteStore } from "../favorites/store.ts";
 import { DownloadManager } from "../hf/download.ts";
+import { InstallManager } from "../llama/install.ts";
 import { readHfTokenFromCache } from "../hf/client.ts";
 import { startControlPlane } from "./controlplane.ts";
 import { generateToken, writeRuntime, clearRuntime } from "./runtime.ts";
-import { logsDir } from "../config/paths.ts";
+import { logsDir, installsDir, installsRegistryPath } from "../config/paths.ts";
 import { modelScanPaths } from "../config/config.ts";
 import { mkdir } from "node:fs/promises";
 
-/** Resolve the llama-server binary path: explicit config, else PATH lookup. */
-function resolveLlamaServer(config: Config): string {
+/**
+ * Resolve the llama-server binary to spawn. Precedence:
+ *   1. explicit `config.llamaServerPath` override
+ *   2. the active managed install's binary (`activeBinPath`)
+ *   3. PATH lookup; else the bare name (supervisor surfaces a typed error).
+ */
+function resolveLlamaServer(config: Config, activeBinPath: string | null): string {
   if (config.llamaServerPath) return config.llamaServerPath;
+  if (activeBinPath) return activeBinPath;
   const onPath = Bun.which("llama-server");
-  // Fall back to the bare name; the supervisor surfaces a typed error if absent.
   return onPath ?? "llama-server";
 }
 
@@ -60,11 +66,20 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
       .catch(() => {});
   };
 
+  // Managed llama.cpp installs. The active install (if any) supplies the
+  // binary the supervisor spawns; switching it affects subsequent (re)starts.
+  const installs = await InstallManager.load({
+    installsDir: installsDir(),
+    registryPath: installsRegistryPath(),
+    initialActiveId: config.activeInstall,
+  });
+
   const supervisor = new Supervisor({
     config,
     resolver,
     logsDir: logsDir(),
-    llamaServerPath: resolveLlamaServer(config),
+    llamaServerPath: () =>
+      resolveLlamaServer(config, installs.getActive()?.binPath ?? null),
   });
 
   const instances = await loadInstanceStore();
@@ -95,6 +110,7 @@ export async function runDaemon(config: Config): Promise<RunDaemonResult> {
     favorites,
     sampler,
     downloads,
+    installs,
     getHfToken,
     models: () => currentModels,
     refreshModels: () => refreshModels(),

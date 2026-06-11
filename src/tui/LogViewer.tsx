@@ -15,6 +15,24 @@ export interface LogViewerProps {
 
 const TAIL_LINES = 500;
 const REFRESH_MS = 1000;
+
+/** ANSI/VT escape sequences (colors, cursor moves) emitted by build tools. */
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+
+/**
+ * Make one captured log line safe to render in the TUI. Build tools (cmake,
+ * ninja, make) redraw progress in place with carriage returns and color with
+ * ANSI escapes; an embedded `\r` would yank the terminal cursor to column 0
+ * mid-render and corrupt the layout. Strip ANSI, drop a trailing CRLF `\r`, then
+ * collapse `\r` progress redraws to the final visible segment — what a terminal
+ * would leave on screen — and remove any remaining control characters.
+ */
+export function sanitizeLogLine(line: string): string {
+  const noAnsi = line.replace(ANSI_RE, "").replace(/\r$/, "");
+  const lastCr = noAnsi.lastIndexOf("\r");
+  const visible = lastCr >= 0 ? noAnsi.slice(lastCr + 1) : noAnsi;
+  return visible.replace(/[\x00-\x08\x0b-\x1f]/g, "");
+}
 /**
  * Rows of fixed chrome above/around the scrollback (resource header + this
  * modal's border/title/path/footer). Subtracted from the terminal height so the
@@ -145,8 +163,10 @@ export function LogViewer({
         {visible.map((line, i) => (
           // Log lines have no stable id; index is fine for an append-only tail.
           // wrap="truncate" keeps each line to one row so height stays bounded.
+          // sanitize strips carriage returns / ANSI so build progress output
+          // doesn't corrupt the terminal layout.
           <Text key={i} wrap="truncate">
-            {line}
+            {sanitizeLogLine(line)}
           </Text>
         ))}
       </Box>

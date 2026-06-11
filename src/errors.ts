@@ -42,15 +42,23 @@ function defaultStatus(code: ErrorCode): number {
     case "model_not_found":
     case "not_running":
       return 404;
+    case "install_not_found":
+    case "download_not_found":
+    case "instance_not_found":
+      return 404;
     case "ambiguous_model":
       return 409;
     case "already_running":
+    case "instance_exists":
       return 409;
+    case "missing_toolchain":
+      return 422;
     case "daemon_unreachable":
       return 503;
     case "launch_failed":
     case "restart_cap_exceeded":
     case "llama_server_missing":
+    case "build_failed":
     case "internal":
       return 500;
     default:

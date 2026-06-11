@@ -8,6 +8,7 @@ function cfg(overrides: Partial<Config> = {}): Config {
     modelPaths: [],
     controlPort: 48134,
     llamaServerPath: null,
+    activeInstall: null,
     defaultCtx: 4096,
     defaultGpuLayers: 99,
     llamaServerArgs: [],

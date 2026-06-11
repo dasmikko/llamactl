@@ -26,6 +26,8 @@ import type {
   HfFile,
   HfSearchResponse,
   HfFilesResponse,
+  InstallsResponse,
+  BuildRequest,
 } from "../types.ts";
 import {
   connectDaemon,
@@ -54,6 +56,8 @@ export interface UseDaemon {
   /** The llama-server binary the daemon will spawn (path / found / version). */
   llamaServer: LlamaServerInfo | null;
   downloads: Download[];
+  /** Managed llama.cpp installs, in-flight/recent builds, and the active install id. */
+  installs: InstallsResponse | null;
   error: string | null;
   connected: boolean;
   /** True until the first connect attempt has settled. */
@@ -82,6 +86,14 @@ export interface UseDaemon {
   pull(repo: string, file: string): Promise<void>;
   /** Cancel an in-flight download. */
   cancelDownload(id: string): Promise<void>;
+  /** Start building a managed llama.cpp install from source. */
+  startBuild(req: BuildRequest): Promise<void>;
+  /** Cancel an in-flight build. */
+  cancelBuild(id: string): Promise<void>;
+  /** Select the active install (null falls back to the PATH binary). */
+  setActiveInstall(id: string | null): Promise<void>;
+  /** Delete a managed install. */
+  removeInstall(id: string): Promise<void>;
   /** Stop the running daemon and spawn a fresh one (e.g. to pick up new code). */
   restartDaemon(): Promise<void>;
   refreshNow(): Promise<void>;
@@ -98,6 +110,7 @@ export function useDaemon(config: Config): UseDaemon {
   const [stats, setStats] = useState<StatsSnapshot | null>(null);
   const [llamaServer, setLlamaServer] = useState<LlamaServerInfo | null>(null);
   const [downloads, setDownloads] = useState<Download[]>([]);
+  const [installs, setInstalls] = useState<InstallsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(true);
@@ -126,16 +139,18 @@ export function useDaemon(config: Config): UseDaemon {
     const conn = connRef.current;
     if (!conn) return;
     try {
-      const [ps, st, dl] = await Promise.all([
+      const [ps, st, dl, ins] = await Promise.all([
         conn.request<PsResponse>("GET", "/ps"),
         conn.request<StatsResponse>("GET", "/stats"),
         conn.request<DownloadsResponse>("GET", "/downloads"),
+        conn.request<InstallsResponse>("GET", "/installs"),
       ]);
       if (!mountedRef.current) return;
       setRunning(ps.running);
       setStats(st.stats);
       setLlamaServer(st.llamaServer);
       setDownloads(dl.downloads);
+      setInstalls(ins);
       setError(null);
       // While downloads are in flight or recently finished, keep the model list
       // fresh so a completed download shows up in the catalog promptly.
@@ -338,6 +353,50 @@ export function useDaemon(config: Config): UseDaemon {
     [runMutation],
   );
 
+  const startBuild = useCallback(
+    (req: BuildRequest) =>
+      runMutation(async (conn) =>
+        setInstalls(await conn.request<InstallsResponse>("POST", "/installs", req)),
+      ),
+    [runMutation],
+  );
+
+  const cancelBuild = useCallback(
+    (id: string) =>
+      runMutation(async (conn) =>
+        setInstalls(
+          await conn.request<InstallsResponse>(
+            "POST",
+            `/installs/${encodeURIComponent(id)}/cancel`,
+          ),
+        ),
+      ),
+    [runMutation],
+  );
+
+  const setActiveInstall = useCallback(
+    (id: string | null) =>
+      runMutation(async (conn) =>
+        setInstalls(
+          await conn.request<InstallsResponse>("PUT", "/installs/active", { id }),
+        ),
+      ),
+    [runMutation],
+  );
+
+  const removeInstall = useCallback(
+    (id: string) =>
+      runMutation(async (conn) =>
+        setInstalls(
+          await conn.request<InstallsResponse>(
+            "DELETE",
+            `/installs/${encodeURIComponent(id)}`,
+          ),
+        ),
+      ),
+    [runMutation],
+  );
+
   return {
     models,
     instances,
@@ -346,6 +405,7 @@ export function useDaemon(config: Config): UseDaemon {
     stats,
     llamaServer,
     downloads,
+    installs,
     error,
     connected,
     connecting,
@@ -360,6 +420,10 @@ export function useDaemon(config: Config): UseDaemon {
     listHfFiles,
     pull,
     cancelDownload,
+    startBuild,
+    cancelBuild,
+    setActiveInstall,
+    removeInstall,
     restartDaemon,
     refreshNow,
   };

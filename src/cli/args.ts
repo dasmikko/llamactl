@@ -41,6 +41,9 @@ const VALUE_OPTS = new Set([
   "instance",
   "name",
   "extra-args",
+  "ref",
+  "backend",
+  "cuda-host-compiler",
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {

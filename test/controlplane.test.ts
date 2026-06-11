@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import type {
   FavoriteStore,
   IDownloadManager,
+  IInstallManager,
   InstanceStore,
   ISupervisor,
   Model,
@@ -131,6 +132,84 @@ const mockDownloads: IDownloadManager = {
     if (id !== "r:f") throw new LlamactlError("download_not_found", "no such download");
   },
 };
+type InstallCalls = {
+  started: { repo: string }[];
+  canceled: string[];
+  removed: string[];
+  activated: (string | null)[];
+};
+function mockInstallManager(): IInstallManager & { calls: InstallCalls } {
+  const calls: InstallCalls = { started: [], canceled: [], removed: [], activated: [] };
+  let activeId: string | null = null;
+  return {
+    calls,
+    installs: () => [],
+    builds: () =>
+      calls.started.map((s, i) => ({
+        id: `build-${i}`,
+        name: s.repo,
+        repo: s.repo,
+        ref: "main",
+        backend: "cuda",
+        keepSource: false,
+        allowUnsupportedCompiler: false,
+        cudaHostCompiler: null,
+        status: "queued",
+        logTail: [],
+        logPath: "/tmp/x.log",
+        error: null,
+        installId: null,
+        startedAt: i,
+      })),
+    getActive: () =>
+      activeId === null
+        ? null
+        : {
+            id: activeId,
+            name: activeId,
+            repo: "r",
+            ref: "main",
+            commit: null,
+            backend: "cuda",
+            binPath: "/x",
+            version: null,
+            keepSource: false,
+            builtAt: 0,
+            sizeBytes: null,
+          },
+    start: (req) => {
+      calls.started.push({ repo: req.repo });
+      const i = calls.started.length - 1;
+      return {
+        id: `build-${i}`,
+        name: req.repo,
+        repo: req.repo,
+        ref: req.ref ?? "main",
+        backend: req.backend ?? "cuda",
+        keepSource: req.keepSource ?? false,
+        allowUnsupportedCompiler: req.allowUnsupportedCompiler ?? false,
+        cudaHostCompiler: req.cudaHostCompiler ?? null,
+        status: "queued",
+        logTail: [],
+        logPath: "/tmp/x.log",
+        error: null,
+        installId: null,
+        startedAt: i,
+      };
+    },
+    cancel: (id) => {
+      calls.canceled.push(id);
+    },
+    setActive: async (id) => {
+      calls.activated.push(id);
+      activeId = id;
+    },
+    remove: async (id) => {
+      calls.removed.push(id);
+    },
+  };
+}
+let mockInstalls: ReturnType<typeof mockInstallManager>;
 const getHfToken = async (): Promise<string | null> => null;
 
 let handle: ControlPlaneHandle;
@@ -139,6 +218,7 @@ const base = () => handle.url;
 
 beforeAll(async () => {
   sup = mockSupervisor();
+  mockInstalls = mockInstallManager();
   handle = await startControlPlane({
     token: TOKEN,
     supervisor: sup,
@@ -146,6 +226,7 @@ beforeAll(async () => {
     favorites: mockFavorites(),
     sampler: mockSampler,
     downloads: mockDownloads,
+    installs: mockInstalls,
     getHfToken,
     models: () => [model("alpha"), model("beta")],
     refreshModels: () => {},
@@ -296,6 +377,86 @@ test("GET /favorites starts empty; POST toggle adds then removes", async () => {
   expect(((await off.json()) as { favorites: string[] }).favorites).toEqual([]);
 });
 
+test("GET /installs returns the install manager state", async () => {
+  const res = await fetch(base() + "/installs", { headers: { authorization: `Bearer ${TOKEN}` } });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { installs: unknown[]; builds: unknown[]; activeId: string | null };
+  expect(Array.isArray(body.installs)).toBe(true);
+  expect(Array.isArray(body.builds)).toBe(true);
+  expect(body.activeId).toBe(null);
+});
+
+test("POST /installs starts a build and returns fresh state", async () => {
+  const res = await fetch(base() + "/installs", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ repo: "ggml-org/llama.cpp" }),
+  });
+  expect(res.status).toBe(200);
+  expect(mockInstalls.calls.started).toContainEqual({ repo: "ggml-org/llama.cpp" });
+  const body = (await res.json()) as { builds: { repo: string }[] };
+  expect(body.builds.some((b) => b.repo === "ggml-org/llama.cpp")).toBe(true);
+});
+
+test("POST /installs without repo is accepted (defaults to upstream)", async () => {
+  const res = await fetch(base() + "/installs", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  // The manager fills in the default repo; the control plane no longer rejects.
+  expect(res.status).toBe(200);
+});
+
+test("POST /installs with a non-string repo => 400 bad_request", async () => {
+  const res = await fetch(base() + "/installs", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ repo: 123 }),
+  });
+  expect(res.status).toBe(400);
+  const body = (await res.json()) as { error: { code: string } };
+  expect(body.error.code).toBe("bad_request");
+});
+
+test("POST /installs/:id/cancel cancels by id", async () => {
+  const res = await fetch(base() + "/installs/build-0/cancel", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(200);
+  expect(mockInstalls.calls.canceled).toContain("build-0");
+});
+
+test("DELETE /installs/:id removes by id", async () => {
+  const res = await fetch(base() + "/installs/build-0", {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(200);
+  expect(mockInstalls.calls.removed).toContain("build-0");
+});
+
+test("PUT /installs/active activates an id, then clears with null", async () => {
+  const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+  const on = await fetch(base() + "/installs/active", {
+    method: "PUT",
+    headers: auth,
+    body: JSON.stringify({ id: "build-0" }),
+  });
+  expect(on.status).toBe(200);
+  expect(((await on.json()) as { activeId: string | null }).activeId).toBe("build-0");
+
+  const off = await fetch(base() + "/installs/active", {
+    method: "PUT",
+    headers: auth,
+    body: JSON.stringify({ id: null }),
+  });
+  expect(off.status).toBe(200);
+  expect(((await off.json()) as { activeId: string | null }).activeId).toBe(null);
+  expect(mockInstalls.calls.activated).toEqual(["build-0", null]);
+});
+
 test("unknown route => 404 not_found", async () => {
   const res = await fetch(base() + "/nope", { headers: { authorization: `Bearer ${TOKEN}` } });
   expect(res.status).toBe(404);
@@ -313,6 +474,7 @@ test("control plane scans upward when its preferred port is taken", async () => 
       favorites: mockFavorites(),
       sampler: mockSampler,
     downloads: mockDownloads,
+    installs: mockInstalls,
     getHfToken,
       models: () => [],
       refreshModels: () => {},

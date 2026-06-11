@@ -19,6 +19,7 @@ export function defaultConfig(): Config {
     modelPaths: [],
     controlPort: CONTROL_PORT_DEFAULT,
     llamaServerPath: null,
+    activeInstall: null,
     defaultCtx: 4096,
     defaultGpuLayers: DEFAULT_GPU_LAYERS,
     llamaServerArgs: [],
@@ -32,6 +33,7 @@ export type PartialConfig = {
   modelPaths?: string[];
   controlPort?: number;
   llamaServerPath?: string | null;
+  activeInstall?: string | null;
   defaultCtx?: number;
   defaultGpuLayers?: number;
   llamaServerArgs?: string[];
@@ -46,6 +48,8 @@ export function mergeConfig(base: Config, over: PartialConfig): Config {
     controlPort: over.controlPort ?? base.controlPort,
     llamaServerPath:
       over.llamaServerPath !== undefined ? over.llamaServerPath : base.llamaServerPath,
+    activeInstall:
+      over.activeInstall !== undefined ? over.activeInstall : base.activeInstall,
     defaultCtx: over.defaultCtx ?? base.defaultCtx,
     defaultGpuLayers: over.defaultGpuLayers ?? base.defaultGpuLayers,
     llamaServerArgs: over.llamaServerArgs ?? base.llamaServerArgs,

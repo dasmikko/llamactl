@@ -145,6 +145,12 @@ export interface Config {
   controlPort: number;
   /** Explicit path to the `llama-server` binary, or null to use PATH. */
   llamaServerPath: string | null;
+  /**
+   * Id of the active managed llama.cpp install whose binary the daemon spawns,
+   * or null to fall back to `llamaServerPath`/PATH. `llamaServerPath` (when set)
+   * still takes precedence as an explicit override.
+   */
+  activeInstall: string | null;
   /** Default context size passed as `--ctx-size` when a spec omits it. */
   defaultCtx: number;
   /**
@@ -275,6 +281,86 @@ export interface Download {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Llama.cpp builds & managed installs.                                        */
+/* -------------------------------------------------------------------------- */
+
+/** Backend a llama.cpp build targets. */
+export type LlamaBackend = "cpu" | "cuda";
+
+/**
+ * A built, managed llama.cpp installation. llamactl clones and builds these
+ * itself into its own data dir; the registry only ever points at paths it owns.
+ * One install is "active" at a time and supplies the `llama-server` binary the
+ * supervisor spawns.
+ */
+export interface LlamaInstall {
+  /** Stable slug, unique within the registry. */
+  id: string;
+  /** Human label shown in the UI. */
+  name: string;
+  /** Git repo the build was cloned from. */
+  repo: string;
+  /** Git ref (branch/tag/commit) requested. */
+  ref: string;
+  /** Resolved commit sha actually built, or null if unknown. */
+  commit: string | null;
+  /** Backend the build targeted. */
+  backend: LlamaBackend;
+  /** Absolute path to this install's `llama-server` binary. */
+  binPath: string;
+  /** Version reported by `llama-server --version`, or null. */
+  version: string | null;
+  /** Whether the source checkout was kept (vs pruned after build to save space). */
+  keepSource: boolean;
+  /** Epoch ms when the build finished. */
+  builtAt: number;
+  /** Size on disk in bytes of the install dir, or null if unmeasured. */
+  sizeBytes: number | null;
+}
+
+/** Status of a background llama.cpp build job. */
+export type BuildStatus =
+  | "queued"
+  | "cloning"
+  | "configuring"
+  | "building"
+  | "installing"
+  | "ready"
+  | "error"
+  | "canceled";
+
+/** A tracked llama.cpp build job (mirrors a Download for the UI/CLI). */
+export interface BuildJob {
+  /** Stable id for this build (also the resulting install id on success). */
+  id: string;
+  /** Human label, defaults to a slug derived from repo+ref. */
+  name: string;
+  repo: string;
+  ref: string;
+  backend: LlamaBackend;
+  /** Keep the source checkout instead of pruning it after the build. */
+  keepSource: boolean;
+  /** Pass `-allow-unsupported-compiler` to nvcc (CUDA builds with a too-new host gcc). */
+  allowUnsupportedCompiler: boolean;
+  /** Host C++ compiler nvcc should use (`-DCMAKE_CUDA_HOST_COMPILER`), or null. */
+  cudaHostCompiler: string | null;
+  status: BuildStatus;
+  /** Tail of the build log (most recent lines) for live progress display. */
+  logTail: string[];
+  /**
+   * Absolute path to this build's full log file on disk. Persisted so a failed
+   * build's output survives the cleanup of its (partial) install dir and can be
+   * opened in full. Removed when the job is cleared/removed.
+   */
+  logPath: string;
+  /** Error message when status is "error". */
+  error: string | null;
+  /** Id of the resulting install once status is "ready" (equals `id`). */
+  installId: string | null;
+  startedAt: number;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Control-plane wire types (CLI/TUI <-> daemon over loopback HTTP).            */
 /* -------------------------------------------------------------------------- */
 
@@ -308,6 +394,9 @@ export type ErrorCode =
   | "invalid_spec"
   | "hf_error"
   | "download_not_found"
+  | "build_failed"
+  | "missing_toolchain"
+  | "install_not_found"
   | "internal";
 
 /**
@@ -398,6 +487,48 @@ export interface PullRequest {
   revision?: string;
 }
 
+/**
+ * GET /installs response — managed builds, in-flight/recent build jobs, and the
+ * id of the active install (null when falling back to the PATH binary).
+ */
+export interface InstallsResponse {
+  installs: LlamaInstall[];
+  builds: BuildJob[];
+  activeId: string | null;
+}
+
+/** POST /installs request body — start a llama.cpp build from source. */
+export interface BuildRequest {
+  /** Git repo URL to clone. */
+  repo: string;
+  /** Git ref (branch/tag/commit); defaults to the repo's default branch. */
+  ref?: string;
+  /** Backend to target; defaults to "cuda". */
+  backend?: LlamaBackend;
+  /** Display name; defaults to a slug derived from repo+ref. */
+  name?: string;
+  /** Keep the source checkout instead of pruning it after build. Default false. */
+  keepSource?: boolean;
+  /**
+   * Pass `-allow-unsupported-compiler` to nvcc (CUDA builds only). Default false.
+   * Set this when nvcc aborts with "unsupported GNU version" because the host
+   * gcc is newer than the installed CUDA toolkit officially supports.
+   */
+  allowUnsupportedCompiler?: boolean;
+  /**
+   * Host C++ compiler for nvcc to use (CUDA builds only), e.g. "g++-15" or an
+   * absolute path. Maps to `-DCMAKE_CUDA_HOST_COMPILER`. Use when the default
+   * gcc is too new for the CUDA toolkit but an older, supported gcc is installed.
+   */
+  cudaHostCompiler?: string;
+}
+
+/** PUT /installs/active request body — select the active install. */
+export interface ActiveInstallRequest {
+  /** Install id to activate, or null to fall back to the PATH binary. */
+  id: string | null;
+}
+
 /** GET /health response (the one unauthenticated route). */
 export interface HealthResponse {
   ok: true;
@@ -462,6 +593,37 @@ export interface IDownloadManager {
   start(repo: string, file: string, revision?: string): Download;
   /** Cancel an in-flight download. Throws LlamactlError("download_not_found"). */
   cancel(id: string): void;
+}
+
+/**
+ * Manages llama.cpp builds and the registry of managed installs (owned by the
+ * daemon). Builds run in the background; the active install supplies the
+ * `llama-server` binary the supervisor spawns. Callers depend only on this seam.
+ */
+export interface IInstallManager {
+  /** All managed installs. */
+  installs(): LlamaInstall[];
+  /** All tracked build jobs (active and recently finished). */
+  builds(): BuildJob[];
+  /** The active install, or null when falling back to the PATH binary. */
+  getActive(): LlamaInstall | null;
+  /**
+   * Begin a llama.cpp build in the background. Returns the tracked BuildJob
+   * immediately (status "queued"/"cloning"). The job's id becomes the install id.
+   */
+  start(req: BuildRequest): BuildJob;
+  /** Cancel an in-flight build. Throws LlamactlError("install_not_found"). */
+  cancel(id: string): void;
+  /**
+   * Set the active install (or null to fall back to PATH). Persists the choice.
+   * Throws LlamactlError("install_not_found") for an unknown id.
+   */
+  setActive(id: string | null): Promise<void>;
+  /**
+   * Remove an install and delete its files. Throws
+   * LlamactlError("install_not_found") for an unknown id.
+   */
+  remove(id: string): Promise<void>;
 }
 
 /** Persisted CRUD over saved instance profiles (owned by the daemon). */

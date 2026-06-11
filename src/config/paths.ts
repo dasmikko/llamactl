@@ -36,6 +36,20 @@ export function cacheDir(): string {
   return join(env("XDG_CACHE_HOME") ?? join(homedir(), ".cache"), APP);
 }
 
+/**
+ * Base dir for durable, expensive-to-recreate user data (managed llama.cpp
+ * builds live here). Distinct from cacheDir() because these aren't disposable.
+ */
+export function dataDir(): string {
+  if (process.platform === "win32") {
+    return join(env("LOCALAPPDATA") ?? join(homedir(), "AppData", "Local"), APP, "data");
+  }
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", APP);
+  }
+  return join(env("XDG_DATA_HOME") ?? join(homedir(), ".local", "share"), APP);
+}
+
 /** Base dir for user configuration. */
 export function configDir(): string {
   if (process.platform === "win32") {
@@ -70,6 +84,16 @@ export function favoritesPath(): string {
 /** Directory holding per-launch logs. */
 export function logsDir(): string {
   return join(cacheDir(), "logs");
+}
+
+/** Root directory holding managed llama.cpp installs (one subdir per install). */
+export function installsDir(): string {
+  return join(dataDir(), "llama");
+}
+
+/** Absolute path to the managed-installs registry file. */
+export function installsRegistryPath(): string {
+  return join(configDir(), "installs.json");
 }
 
 /** Default model-cache directories scanned during discovery. */

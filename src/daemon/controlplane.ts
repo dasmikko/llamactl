@@ -6,6 +6,8 @@
  */
 
 import type {
+  ActiveInstallRequest,
+  BuildRequest,
   Download,
   DownloadsResponse,
   FavoriteStore,
@@ -14,6 +16,8 @@ import type {
   HfFilesResponse,
   HfSearchResponse,
   IDownloadManager,
+  IInstallManager,
+  InstallsResponse,
   InstanceStore,
   InstanceUpsertRequest,
   InstancesResponse,
@@ -50,6 +54,8 @@ export interface ControlPlaneOptions {
   sampler: StatsSource;
   /** Background Hugging Face downloads. */
   downloads: IDownloadManager;
+  /** Managed llama.cpp builds and installs. */
+  installs: IInstallManager;
   /** Resolve the Hugging Face token (config or HF cache) for API calls. */
   getHfToken: () => Promise<string | null>;
   /** Returns the current set of discovered models. */
@@ -135,6 +141,15 @@ function shardGroup(file: string, allFiles: string[]): string[] {
     return mm && mm[1] === prefix && mm[3] === total;
   });
   return group.length > 0 ? group : [file];
+}
+
+/** Snapshot the install manager's current state into the wire response shape. */
+function installsResponse(installs: IInstallManager): InstallsResponse {
+  return {
+    installs: installs.installs(),
+    builds: installs.builds(),
+    activeId: installs.getActive()?.id ?? null,
+  };
 }
 
 export async function startControlPlane(opts: ControlPlaneOptions): Promise<ControlPlaneHandle> {
@@ -250,6 +265,43 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
           await opts.favorites.toggle(id);
           const body: FavoritesResponse = { favorites: opts.favorites.list() };
           return json(body);
+        }
+
+        if (path === "/installs" && req.method === "GET") {
+          return json(installsResponse(opts.installs));
+        }
+
+        if (path === "/installs" && req.method === "POST") {
+          const body = (await req.json()) as BuildRequest;
+          if (!body || (body.repo !== undefined && typeof body.repo !== "string")) {
+            throw new LlamactlError("bad_request", "field 'repo' must be a string");
+          }
+          // An empty/omitted repo defaults to upstream llama.cpp (in start()).
+          opts.installs.start(body);
+          return json(installsResponse(opts.installs));
+        }
+
+        if (path === "/installs/active" && req.method === "PUT") {
+          const body = (await req.json()) as ActiveInstallRequest;
+          await opts.installs.setActive(body?.id ?? null);
+          return json(installsResponse(opts.installs));
+        }
+
+        // POST /installs/:id/cancel — checked before DELETE /installs/:id so the
+        // two routes don't collide.
+        const installCancelMatch = /^\/installs\/(.+)\/cancel$/.exec(path);
+        if (installCancelMatch && req.method === "POST") {
+          const id = decodeURIComponent(installCancelMatch[1]!);
+          opts.installs.cancel(id);
+          return json(installsResponse(opts.installs));
+        }
+
+        // DELETE /installs/:id — remove a managed install.
+        const installMatch = /^\/installs\/(.+)$/.exec(path);
+        if (installMatch && req.method === "DELETE") {
+          const id = decodeURIComponent(installMatch[1]!);
+          await opts.installs.remove(id);
+          return json(installsResponse(opts.installs));
         }
 
         // DELETE /models/:id — remove a model's file(s) from disk.

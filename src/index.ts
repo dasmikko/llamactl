@@ -16,6 +16,7 @@ import {
   cmdDoctor,
   cmdDownloads,
   cmdInit,
+  cmdInstall,
   cmdInstance,
   cmdList,
   cmdPs,
@@ -49,6 +50,8 @@ Commands:
   search <query>       Search Hugging Face for GGUF models
   pull <repo>[:quant]  Download a model from Hugging Face
   downloads [cancel <id>]   List or cancel downloads
+  install [<repo>]     Build & install llama.cpp from source (no repo ⇒ upstream llama.cpp)
+  install list|use <id>|rm <id>|cancel <id>|log <id>   Manage managed installs (rm also clears failed builds)
   daemon start|stop    Start or stop the background supervisor
   init                 Interactive setup wizard          (planned)
   recommend            Suggest a model for your hardware  (planned)
@@ -76,7 +79,12 @@ Options:
   --host <addr>        Bind host for the instance (default 127.0.0.1)
   --port <n>           Pin the instance port (default: auto)
   --extra-args "<a b>" Extra llama-server args, space-separated
-  --name <id>          Name for 'instance add'
+  --name <id>          Name for 'instance add' or 'install'
+  --ref <git-ref>      Git ref to build for 'install' (branch/tag/commit)
+  --backend <b>        Build backend for 'install': cuda or cpu (default cuda)
+  --keep-source        Keep the source checkout after an 'install' build
+  --allow-unsupported-compiler  Pass -allow-unsupported-compiler to nvcc (too-new host gcc)
+  --cuda-host-compiler <p>  Host C++ compiler for CUDA, e.g. g++-15 (-DCMAKE_CUDA_HOST_COMPILER)
   --control-port <n>   Control-plane base port (default 48134)
   --llama-server <p>   Path to the llama-server binary
   --model-paths <a:b>  Extra colon-separated model directories
@@ -155,6 +163,8 @@ async function main(): Promise<number> {
         return await cmdPs(config, mode);
       case "instance":
         return await cmdInstance(a, config, mode);
+      case "install":
+        return await cmdInstall(a, config, mode);
       case "search":
         return await cmdSearch(a, config, mode);
       case "pull":

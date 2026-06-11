@@ -8,7 +8,13 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { render, Box, Text, useApp, useInput, useStdout } from "ink";
-import type { Config, LaunchSpec, Model, StartRequest } from "../types.ts";
+import type {
+  Config,
+  InstallsResponse,
+  LaunchSpec,
+  Model,
+  StartRequest,
+} from "../types.ts";
 import { useDaemon } from "./useDaemon.ts";
 import { buildRows, filterRows, defaultSpecForRow, type Row } from "./rows.ts";
 import { parseRepo } from "../discovery/models.ts";
@@ -20,10 +26,22 @@ import { HelpOverlay } from "./HelpOverlay.tsx";
 import { Filter } from "./Filter.tsx";
 import { HfBrowser } from "./HfBrowser.tsx";
 import { Downloads } from "./Downloads.tsx";
+import { Installs } from "./Installs.tsx";
+import { BuildForm } from "./BuildForm.tsx";
 import { ModelInfo } from "./ModelInfo.tsx";
 import { openInBrowser } from "./browser.ts";
 
-type Mode = "table" | "edit" | "logs" | "help" | "filter" | "hf" | "info";
+type Mode =
+  | "table"
+  | "edit"
+  | "logs"
+  | "help"
+  | "filter"
+  | "hf"
+  | "info"
+  | "installs"
+  | "build"
+  | "buildlog";
 
 /** Editor invocation context: are we creating a fresh profile or editing one? */
 interface EditorState {
@@ -82,6 +100,7 @@ function App({ config }: AppProps): React.ReactElement {
     stats,
     llamaServer,
     downloads,
+    installs,
     error,
     connected,
     connecting,
@@ -95,6 +114,10 @@ function App({ config }: AppProps): React.ReactElement {
     searchHf,
     listHfFiles,
     pull,
+    startBuild,
+    cancelBuild,
+    setActiveInstall,
+    removeInstall,
     restartDaemon,
   } = daemon;
 
@@ -105,6 +128,8 @@ function App({ config }: AppProps): React.ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
+  // The build log currently open in the buildlog view (path + title), or null.
+  const [buildLog, setBuildLog] = useState<{ logPath: string; title: string } | null>(null);
   // A pending destructive action awaiting confirmation (repeat the key or `y`).
   const [pending, setPending] = useState<PendingAction>(null);
   // A periodic "now" so uptime ticks even between data changes.
@@ -279,6 +304,17 @@ function App({ config }: AppProps): React.ReactElement {
         } else {
           setPending({ kind: "restart-daemon" });
         }
+        return;
+      }
+
+      if (input === "I") {
+        // Capital I: open the managed-installs view (lowercase i is model info).
+        setMode("installs");
+        return;
+      }
+      if (input === "B") {
+        // Capital B: open the build form to start a managed llama.cpp build.
+        setMode("build");
         return;
       }
 
@@ -460,6 +496,34 @@ function App({ config }: AppProps): React.ReactElement {
             onPull={(repo, file) => void pull(repo, file)}
             onClose={() => setMode("table")}
           />
+        ) : mode === "buildlog" && buildLog ? (
+          <LogViewer
+            logPath={buildLog.logPath}
+            title={buildLog.title}
+            onClose={() => setMode("installs")}
+          />
+        ) : mode === "installs" ? (
+          <InstallsView
+            installs={installs}
+            width={columns}
+            onSetActive={(id) => void setActiveInstall(id)}
+            onCancelBuild={(id) => void cancelBuild(id)}
+            onRemove={(id) => void removeInstall(id)}
+            onViewLog={(logPath, title) => {
+              setBuildLog({ logPath, title });
+              setMode("buildlog");
+            }}
+            onBuild={() => setMode("build")}
+            onClose={() => setMode("table")}
+          />
+        ) : mode === "build" ? (
+          <BuildForm
+            onSubmit={(req) => {
+              void startBuild(req);
+              setMode("installs");
+            }}
+            onCancel={() => setMode("table")}
+          />
         ) : (
           <>
             {downloads.length > 0 ? (
@@ -565,6 +629,103 @@ function InfoView({
   return <ModelInfo row={row} now={now} />;
 }
 
+/**
+ * Managed-installs modal: owns its own selection + Esc/key handling and renders
+ * the presentational Installs list. Actions are delegated to useDaemon mutations
+ * passed down from the app.
+ */
+/** Build statuses that are still running (cancelable). */
+const BUILD_IN_FLIGHT = new Set<string>([
+  "queued",
+  "cloning",
+  "configuring",
+  "building",
+  "installing",
+]);
+
+function InstallsView({
+  installs,
+  width,
+  onSetActive,
+  onCancelBuild,
+  onRemove,
+  onViewLog,
+  onBuild,
+  onClose,
+}: {
+  installs: InstallsResponse | null;
+  width: number;
+  onSetActive: (id: string | null) => void;
+  onCancelBuild: (id: string) => void;
+  onRemove: (id: string) => void;
+  onViewLog: (logPath: string, title: string) => void;
+  onBuild: () => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const list = installs?.installs ?? [];
+  const builds = installs?.builds ?? [];
+  const activeId = installs?.activeId ?? null;
+  // Selection spans both lists: 0..list.length-1 select installs, the rest
+  // select builds — so failed builds are reachable to view/remove.
+  const total = list.length + builds.length;
+  const [sel, setSel] = useState(0);
+  const selIdx = total === 0 ? -1 : Math.min(sel, total - 1);
+  const selInstall = selIdx >= 0 && selIdx < list.length ? list[selIdx] : undefined;
+  const selBuild =
+    selIdx >= list.length && selIdx < total ? builds[selIdx - list.length] : undefined;
+
+  useInput((input, key) => {
+    if (key.escape || input === "q" || input === "I") {
+      onClose();
+      return;
+    }
+    if (input === "B") {
+      onBuild();
+      return;
+    }
+    if (key.downArrow || input === "j") {
+      setSel((i) => Math.min(i + 1, Math.max(0, total - 1)));
+      return;
+    }
+    if (key.upArrow || input === "k") {
+      setSel((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (key.return) {
+      // Enter on an install toggles active (re-selecting active ⇒ PATH binary);
+      // Enter on a build opens its log.
+      if (selInstall) onSetActive(selInstall.id === activeId ? null : selInstall.id);
+      else if (selBuild) onViewLog(selBuild.logPath, selBuild.name);
+      return;
+    }
+    if ((input === "l" || input === "L") && selBuild) {
+      onViewLog(selBuild.logPath, selBuild.name);
+      return;
+    }
+    if (input === "d") {
+      // Remove the selected install, or dismiss the selected build (incl. failed).
+      const id = selInstall?.id ?? selBuild?.id;
+      if (id) onRemove(id);
+      return;
+    }
+    if (input === "c" && selBuild && BUILD_IN_FLIGHT.has(selBuild.status)) {
+      onCancelBuild(selBuild.id);
+      return;
+    }
+  });
+
+  return (
+    <Installs
+      installs={list}
+      builds={builds}
+      activeId={activeId}
+      selectedIndex={selInstall ? selIdx : -1}
+      selectedBuildIndex={selBuild ? selIdx - list.length : -1}
+      width={width}
+    />
+  );
+}
+
 /** Minimal input handler used only on the connection-error screen. */
 function QuitOnly({ onQuit }: { onQuit: () => void }): React.ReactElement {
   useInput((input, key) => {
@@ -613,7 +774,7 @@ function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
     );
   }
   const hint =
-     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · / filter · ? help · Ctrl+R restart · q quit";
+     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>
