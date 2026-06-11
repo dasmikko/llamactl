@@ -12,6 +12,8 @@ import { bar, pct, humanBytes } from "./format.ts";
 export interface ResourceHeaderProps {
   stats: StatsSnapshot | null;
   llamaServer: LlamaServerInfo | null;
+  /** Name of the active managed install supplying the binary, or null for PATH. */
+  activeInstallName: string | null;
   error: string | null;
   connected: boolean;
 }
@@ -28,6 +30,7 @@ function clamp100(n: number): number {
 function ResourceHeaderImpl({
   stats,
   llamaServer,
+  activeInstallName,
   error,
   connected,
 }: ResourceHeaderProps): React.ReactElement {
@@ -48,6 +51,9 @@ function ResourceHeaderImpl({
         )}
         {llamaServer?.found && llamaServer.version ? (
           <Text dimColor>{`  llama-server ${llamaServer.version}`}</Text>
+        ) : null}
+        {activeInstallName ? (
+          <Text color="cyan">{`  ▸ ${activeInstallName}`}</Text>
         ) : null}
       </Box>
 

@@ -151,6 +151,12 @@ function App({ config }: AppProps): React.ReactElement {
   }, []);
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  // Name of the active managed install (if any), shown in the header.
+  const activeInstallName = useMemo(() => {
+    const id = installs?.activeId;
+    if (!id) return null;
+    return installs?.installs.find((i) => i.id === id)?.name ?? null;
+  }, [installs]);
   const allRows = useMemo(
     () => buildRows(models, instances, running, stats, favoriteSet),
     [models, instances, running, stats, favoriteSet],
@@ -475,6 +481,7 @@ function App({ config }: AppProps): React.ReactElement {
       <ResourceHeader
         stats={stats}
         llamaServer={llamaServer}
+        activeInstallName={activeInstallName}
         error={error}
         connected={connected}
       />
