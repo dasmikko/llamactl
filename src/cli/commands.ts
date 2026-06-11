@@ -538,7 +538,7 @@ export async function cmdDownloads(args: ParsedArgs, config: Config, mode: Outpu
 /* ------------------------------- installs -------------------------------- */
 
 /** Build statuses that are still in flight (worth surfacing under the table). */
-const NON_TERMINAL_BUILDS = new Set(["queued", "cloning", "configuring", "building", "installing"]);
+const NON_TERMINAL_BUILDS = new Set(["queued", "cloning", "fetching", "configuring", "building", "installing"]);
 
 export async function cmdInstall(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
   const sub = args.positionals[1];

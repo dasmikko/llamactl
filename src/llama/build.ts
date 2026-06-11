@@ -281,14 +281,14 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
   await mkdir(p.installDir, { recursive: true });
 
   // 2. Acquire source.
-  p.onStatus("cloning");
   const pullRef = parsePullRef(p.ref);
 
   if (p.update && (await isGitRepo(src))) {
     // Incremental update: fetch the latest code for the ref and hard-reset onto
-    // it, keeping the build tree so the recompile is incremental.
+    // it, keeping the build tree so the recompile is incremental (no re-clone).
+    p.onStatus("fetching");
     const refspec = pullRef ?? p.ref;
-    p.onLine(`[llamactl] updating: fetching ${refspec}`);
+    p.onLine(`[llamactl] updating: fetching ${refspec} (incremental, no re-clone)`);
     const fetch = await runStep(p, ["git", "-C", src, "fetch", "--depth", "1", "origin", refspec]);
     if (fetch.code !== 0) {
       throw new LlamactlError("build_failed", `fetching ${refspec} failed (exit ${fetch.code})`, {
@@ -305,6 +305,7 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
     // GitHub PR: the head lives at refs/pull/<N>/head, which isn't a branch and
     // can't be `clone --branch`ed. Shallow-clone the default branch, then fetch
     // and check out the PR head.
+    p.onStatus("cloning");
     p.onLine(`[llamactl] building from PR ref ${pullRef}`);
     const clone = await runStep(p, ["git", "clone", "--depth", "1", p.repo, src]);
     if (clone.code !== 0) {
@@ -325,6 +326,7 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
       });
     }
   } else {
+    p.onStatus("cloning");
     const shallow = await runStep(p, [
       "git",
       "clone",

@@ -41,6 +41,7 @@ function buildInFlight(status: BuildStatus): boolean {
   return (
     status === "queued" ||
     status === "cloning" ||
+    status === "fetching" ||
     status === "configuring" ||
     status === "building" ||
     status === "installing"

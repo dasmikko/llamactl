@@ -155,9 +155,10 @@ type InstallCalls = {
   removed: string[];
   activated: (string | null)[];
   renamed: { id: string; name: string }[];
+  updated: string[];
 };
 function mockInstallManager(): IInstallManager & { calls: InstallCalls } {
-  const calls: InstallCalls = { started: [], canceled: [], removed: [], activated: [], renamed: [] };
+  const calls: InstallCalls = { started: [], canceled: [], removed: [], activated: [], renamed: [], updated: [] };
   let activeId: string | null = null;
   return {
     calls,
@@ -190,6 +191,8 @@ function mockInstallManager(): IInstallManager & { calls: InstallCalls } {
             backend: "cuda",
             binPath: "/x",
             version: null,
+            allowUnsupportedCompiler: false,
+            cudaHostCompiler: null,
             builtAt: 0,
             sizeBytes: null,
           },
@@ -217,6 +220,24 @@ function mockInstallManager(): IInstallManager & { calls: InstallCalls } {
     },
     rename: async (id, name) => {
       calls.renamed.push({ id, name });
+    },
+    update: (id) => {
+      calls.updated.push(id);
+      return {
+        id,
+        name: id,
+        repo: "r",
+        ref: "main",
+        backend: "cuda",
+        allowUnsupportedCompiler: false,
+        cudaHostCompiler: null,
+        status: "queued",
+        logTail: [],
+        logPath: "/tmp/x.log",
+        error: null,
+        installId: null,
+        startedAt: 0,
+      };
     },
     setActive: async (id) => {
       calls.activated.push(id);
@@ -489,6 +510,16 @@ test("DELETE /installs/:id removes by id", async () => {
   });
   expect(res.status).toBe(200);
   expect(mockInstalls.calls.removed).toContain("build-0");
+});
+
+test("POST /installs/:id/update triggers a rebuild by id", async () => {
+  const res = await fetch(base() + "/installs/build-0/update", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  expect(res.status).toBe(200);
+  expect(mockInstalls.calls.updated).toContain("build-0");
 });
 
 test("PATCH /installs/:id renames by id", async () => {

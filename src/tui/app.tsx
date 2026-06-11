@@ -684,6 +684,7 @@ function InfoView({
 const BUILD_IN_FLIGHT = new Set<string>([
   "queued",
   "cloning",
+  "fetching",
   "configuring",
   "building",
   "installing",

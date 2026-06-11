@@ -324,6 +324,7 @@ export interface LlamaInstall {
 export type BuildStatus =
   | "queued"
   | "cloning"
+  | "fetching"
   | "configuring"
   | "building"
   | "installing"

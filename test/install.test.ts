@@ -74,10 +74,11 @@ function makeRunner(): FakeRunnerControl {
         return 0;
       }
 
-      // The clone step must create the src dir so a later checkout/configure works.
+      // The clone step must create the src dir (with a .git marker so a later
+      // update is recognized as an existing checkout) so configure works.
       if (joined.includes("git clone")) {
         const srcDir = cmd[cmd.length - 1];
-        if (srcDir) await mkdir(srcDir, { recursive: true });
+        if (srcDir) await mkdir(join(srcDir, ".git"), { recursive: true });
         opts.onLine?.("cloned");
         return 0;
       }
@@ -306,6 +307,38 @@ describe("InstallManager", () => {
       initialActiveId: null,
     });
     expect(reloaded.installs().find((i) => i.id === a.id)?.name).toBe("my fork build");
+  });
+
+  test("update refetches the ref and recompiles in place, reusing build options", async () => {
+    const mgr = await load();
+    const job = mgr.start({ repo: "r", ref: "master", cudaHostCompiler: "g++-15" });
+    await waitTerminal(mgr, job.id);
+    // Build options are persisted on the install.
+    expect(mgr.installs()[0]!.cudaHostCompiler).toBe("g++-15");
+
+    const before = ctl.commands.length;
+    const upd = mgr.update(job.id);
+    expect(upd.id).toBe(job.id);
+    await waitTerminal(mgr, upd.id);
+    expect(mgr.builds().find((b) => b.id === upd.id)?.status).toBe("ready");
+
+    const updCmds = ctl.commands.slice(before);
+    // Incremental: fetch + reset, no fresh clone; reuses the stored host compiler.
+    expect(updCmds.some((c) => c.includes("clone"))).toBe(false);
+    expect(updCmds.some((c) => c.includes("fetch") && c.includes("origin master"))).toBe(true);
+    expect(updCmds.some((c) => c.includes("reset --hard FETCH_HEAD"))).toBe(true);
+    expect(updCmds.some((c) => c.includes("git clone"))).toBe(false);
+    expect(updCmds.some((c) => c.includes("-DCMAKE_CUDA_HOST_COMPILER=g++-15"))).toBe(true);
+  });
+
+  test("update unknown id throws install_not_found", async () => {
+    const mgr = await load();
+    try {
+      mgr.update("nope");
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(isLlamactlError(e) && e.code).toBe("install_not_found");
+    }
   });
 
   test("rename rejects an empty name and an unknown id", async () => {
