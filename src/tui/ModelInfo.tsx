@@ -59,7 +59,7 @@ function Field({ label, value }: { label: string; value: string }): React.ReactE
 }
 
 export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
-  const { model, instance, running, stats } = row;
+  const { model, instance, running, stats, profiles } = row;
   const spec = running?.spec ?? instance?.spec;
   const repo = model ? parseRepo(model.path) : null;
 
@@ -104,16 +104,35 @@ export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
 
       <Box marginTop={1} flexDirection="column">
         <Text bold>
-          {running ? "Launched with" : instance ? `Profile "${instance.name}"` : "Launch flags"}
+          {running
+            ? "Launched with"
+            : instance
+              ? `Profile "${instance.name}"`
+              : profiles.length > 0
+                ? `Profiles (${profiles.length})`
+                : "Launch flags"}
         </Text>
         {spec ? (
+          // A running child or an orphan profile row → one resolved spec.
           specLines(spec).map((l, i) => (
             <Text key={i} dimColor>
               {"  " + l}
             </Text>
           ))
+        ) : profiles.length > 0 ? (
+          // A model row carries any number of named profiles; show each.
+          profiles.map((p) => (
+            <Box key={p.id} flexDirection="column">
+              <Text color="#5f87ff">{`  ${p.name}`}</Text>
+              {specLines(p.spec).map((l, i) => (
+                <Text key={i} dimColor>
+                  {"    " + l}
+                </Text>
+              ))}
+            </Box>
+          ))
         ) : (
-          <Text dimColor>{"  (no saved profile — uses defaults; press e to edit)"}</Text>
+          <Text dimColor>{"  (no saved profile — uses defaults; press e to manage)"}</Text>
         )}
       </Box>
 
