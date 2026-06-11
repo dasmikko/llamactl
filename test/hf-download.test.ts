@@ -224,6 +224,110 @@ describe("DownloadManager", () => {
     }
   });
 
+  test("auto-retries a dropped connection and resumes from the partial via Range", async () => {
+    const full = new TextEncoder().encode("resumable-payload-".repeat(64));
+    let cdnCalls = 0;
+    let sawRange = false;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/meta") {
+          // Redirect to the "CDN", advertising the full size for totalBytes.
+          return new Response(null, {
+            status: 302,
+            headers: { location: `${url.origin}/cdn`, "x-linked-size": String(full.byteLength) },
+          });
+        }
+        // /cdn
+        cdnCalls += 1;
+        const range = req.headers.get("range");
+        if (range) {
+          sawRange = true;
+          const start = Number.parseInt(/bytes=(\d+)-/.exec(range)![1]!, 10);
+          return new Response(full.slice(start), {
+            status: 206,
+            headers: { "content-range": `bytes ${start}-${full.byteLength - 1}/${full.byteLength}` },
+          });
+        }
+        // First call (no Range): emit half the bytes, then drop the connection
+        // after a beat so the partial actually reaches the client before the
+        // error resets the socket.
+        const half = Math.floor(full.byteLength / 2);
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(full.slice(0, half));
+            setTimeout(() => controller.error(new Error("connection dropped")), 30);
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-length": String(full.byteLength) },
+        });
+      },
+    });
+    try {
+      const mgr = new DownloadManager({
+        destDir: () => destDir,
+        getToken: () => null,
+        urlFor: () => `http://127.0.0.1:${server.port}/meta`,
+        retryDelayMs: 5,
+      });
+      const rec = mgr.start("org/repo", "big.gguf");
+      await until(() => mgr.get(rec.id)?.status === "done", 5000);
+
+      expect(cdnCalls).toBe(2); // dropped once, resumed once
+      expect(sawRange).toBe(true); // the resume used a Range request
+      const written = await readFile(join(destDir, "org/repo", "big.gguf"));
+      expect(new Uint8Array(written)).toEqual(full);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("retry() resumes an errored download", async () => {
+    const body = new TextEncoder().encode("second-time-lucky".repeat(16));
+    let calls = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        calls += 1;
+        if (calls === 1) return new Response("temporarily down", { status: 503 });
+        return new Response(body, { headers: { "content-length": String(body.byteLength) } });
+      },
+    });
+    try {
+      const mgr = new DownloadManager({
+        destDir: () => destDir,
+        getToken: () => null,
+        urlFor: () => `http://127.0.0.1:${server.port}/file`,
+        maxRetries: 0, // no auto-retry: the first 503 lands in error
+      });
+      const rec = mgr.start("org/repo", "m.gguf");
+      await until(() => mgr.get(rec.id)?.status === "error");
+
+      // Manual retry succeeds against the now-healthy server.
+      mgr.retry(rec.id);
+      await until(() => mgr.get(rec.id)?.status === "done", 3000);
+      expect(mgr.get(rec.id)?.error).toBeNull();
+      const written = await readFile(join(destDir, "org/repo", "m.gguf"));
+      expect(new Uint8Array(written)).toEqual(body);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("retry on an unknown id throws download_not_found", () => {
+    const mgr = new DownloadManager({ destDir: () => destDir, getToken: () => null });
+    try {
+      mgr.retry("nope:nope");
+      throw new Error("expected retry to throw");
+    } catch (e) {
+      expect(isLlamactlError(e)).toBe(true);
+      if (isLlamactlError(e)) expect(e.code).toBe("download_not_found");
+    }
+  });
+
   test("non-OK HTTP response yields status error", async () => {
     const server = Bun.serve({
       port: 0,

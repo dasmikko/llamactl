@@ -587,6 +587,18 @@ export interface IDownloadManager {
   start(repo: string, file: string, revision?: string): Download;
   /** Cancel an in-flight download. Throws LlamactlError("download_not_found"). */
   cancel(id: string): void;
+  /**
+   * Remove a download from the list entirely (aborting it first if still in
+   * flight) — used to clear errored/finished entries. Throws
+   * LlamactlError("download_not_found") for an unknown id.
+   */
+  dismiss(id: string): void;
+  /**
+   * Re-queue an errored or canceled download, resuming from its partial `.part`
+   * file. No-op if it is already downloading or done. Throws
+   * LlamactlError("download_not_found") for an unknown id.
+   */
+  retry(id: string): Download;
 }
 
 /**

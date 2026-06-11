@@ -86,6 +86,10 @@ export interface UseDaemon {
   pull(repo: string, file: string): Promise<void>;
   /** Cancel an in-flight download. */
   cancelDownload(id: string): Promise<void>;
+  /** Dismiss a download from the list (clears errored/finished entries). */
+  dismissDownload(id: string): Promise<void>;
+  /** Retry/resume an errored or canceled download from its partial file. */
+  retryDownload(id: string): Promise<void>;
   /** Start building a managed llama.cpp install from source. */
   startBuild(req: BuildRequest): Promise<void>;
   /** Cancel an in-flight build. */
@@ -353,6 +357,32 @@ export function useDaemon(config: Config): UseDaemon {
     [runMutation],
   );
 
+  const dismissDownload = useCallback(
+    (id: string) =>
+      runMutation(async (conn) =>
+        setDownloads(
+          (await conn.request<DownloadsResponse>(
+            "DELETE",
+            `/downloads/${encodeURIComponent(id)}`,
+          )).downloads,
+        ),
+      ),
+    [runMutation],
+  );
+
+  const retryDownload = useCallback(
+    (id: string) =>
+      runMutation(async (conn) =>
+        setDownloads(
+          (await conn.request<DownloadsResponse>(
+            "POST",
+            `/downloads/${encodeURIComponent(id)}/retry`,
+          )).downloads,
+        ),
+      ),
+    [runMutation],
+  );
+
   const startBuild = useCallback(
     (req: BuildRequest) =>
       runMutation(async (conn) =>
@@ -420,6 +450,8 @@ export function useDaemon(config: Config): UseDaemon {
     listHfFiles,
     pull,
     cancelDownload,
+    dismissDownload,
+    retryDownload,
     startBuild,
     cancelBuild,
     setActiveInstall,

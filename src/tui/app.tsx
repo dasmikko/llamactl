@@ -10,6 +10,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { render, Box, Text, useApp, useInput, useStdout } from "ink";
 import type {
   Config,
+  Download,
   InstallsResponse,
   LaunchSpec,
   Model,
@@ -41,7 +42,8 @@ type Mode =
   | "info"
   | "installs"
   | "build"
-  | "buildlog";
+  | "buildlog"
+  | "downloads";
 
 /** Editor invocation context: are we creating a fresh profile or editing one? */
 interface EditorState {
@@ -114,6 +116,9 @@ function App({ config }: AppProps): React.ReactElement {
     searchHf,
     listHfFiles,
     pull,
+    cancelDownload,
+    dismissDownload,
+    retryDownload,
     startBuild,
     cancelBuild,
     setActiveInstall,
@@ -315,6 +320,11 @@ function App({ config }: AppProps): React.ReactElement {
       if (input === "B") {
         // Capital B: open the build form to start a managed llama.cpp build.
         setMode("build");
+        return;
+      }
+      if (input === "P") {
+        // Capital P: manage downloads (lowercase p starts a pull).
+        setMode("downloads");
         return;
       }
 
@@ -524,6 +534,14 @@ function App({ config }: AppProps): React.ReactElement {
             }}
             onCancel={() => setMode("table")}
           />
+        ) : mode === "downloads" ? (
+          <DownloadsView
+            downloads={downloads}
+            onCancel={(id) => void cancelDownload(id)}
+            onDismiss={(id) => void dismissDownload(id)}
+            onRetry={(id) => void retryDownload(id)}
+            onClose={() => setMode("table")}
+          />
         ) : (
           <>
             {downloads.length > 0 ? (
@@ -726,6 +744,79 @@ function InstallsView({
   );
 }
 
+const DL_IN_FLIGHT = "downloading";
+
+/**
+ * Interactive downloads manager: navigate the download list, cancel an in-flight
+ * download with `c`, and dismiss any entry (especially errored ones) with `d`.
+ */
+function DownloadsView({
+  downloads,
+  onCancel,
+  onDismiss,
+  onRetry,
+  onClose,
+}: {
+  downloads: Download[];
+  onCancel: (id: string) => void;
+  onDismiss: (id: string) => void;
+  onRetry: (id: string) => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const [sel, setSel] = useState(0);
+  const selIdx = downloads.length === 0 ? -1 : Math.min(sel, downloads.length - 1);
+  const current = selIdx >= 0 ? downloads[selIdx] : undefined;
+
+  useInput((input, key) => {
+    if (key.escape || input === "q" || input === "P") {
+      onClose();
+      return;
+    }
+    if (key.downArrow || input === "j") {
+      setSel((i) => Math.min(i + 1, Math.max(0, downloads.length - 1)));
+      return;
+    }
+    if (key.upArrow || input === "k") {
+      setSel((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (input === "c" && current && current.status === DL_IN_FLIGHT) {
+      onCancel(current.id);
+      return;
+    }
+    if (
+      (input === "r" || key.return) &&
+      current &&
+      (current.status === "error" || current.status === "canceled")
+    ) {
+      onRetry(current.id);
+      return;
+    }
+    if (input === "d" && current) {
+      onDismiss(current.id);
+      return;
+    }
+  });
+
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+      <Text bold color="magenta">
+        MANAGE DOWNLOADS
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        {downloads.length === 0 ? (
+          <Text dimColor>(no downloads — press p to pull a model)</Text>
+        ) : (
+          <Downloads downloads={downloads} selectedIndex={selIdx} showHeader={false} />
+        )}
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>j/k move · r retry/resume · c cancel · d dismiss · Esc close</Text>
+      </Box>
+    </Box>
+  );
+}
+
 /** Minimal input handler used only on the connection-error screen. */
 function QuitOnly({ onQuit }: { onQuit: () => void }): React.ReactElement {
   useInput((input, key) => {
@@ -774,7 +865,7 @@ function StatusBar({ pending, filter }: StatusBarProps): React.ReactElement {
     );
   }
   const hint =
-     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
+     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · P downloads · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>

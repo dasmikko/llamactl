@@ -240,12 +240,30 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
           return json(body);
         }
 
-        // /downloads/:id/cancel
+        // /downloads/:id/cancel — checked before the bare /downloads/:id DELETE.
         const cancelMatch = /^\/downloads\/(.+)\/cancel$/.exec(path);
         if (cancelMatch && req.method === "POST") {
           const id = decodeURIComponent(cancelMatch[1]!);
           opts.downloads.cancel(id);
           return json({ ok: true });
+        }
+
+        // /downloads/:id/retry — resume an errored/canceled download.
+        const retryMatch = /^\/downloads\/(.+)\/retry$/.exec(path);
+        if (retryMatch && req.method === "POST") {
+          const id = decodeURIComponent(retryMatch[1]!);
+          opts.downloads.retry(id);
+          const body: DownloadsResponse = { downloads: opts.downloads.list() };
+          return json(body);
+        }
+
+        // DELETE /downloads/:id — dismiss a download (clear errored/finished).
+        const downloadMatch = /^\/downloads\/(.+)$/.exec(path);
+        if (downloadMatch && req.method === "DELETE") {
+          const id = decodeURIComponent(downloadMatch[1]!);
+          opts.downloads.dismiss(id);
+          const body: DownloadsResponse = { downloads: opts.downloads.list() };
+          return json(body);
         }
 
         if (path === "/instances" && req.method === "GET") {

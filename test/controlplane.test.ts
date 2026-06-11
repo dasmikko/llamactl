@@ -131,6 +131,23 @@ const mockDownloads: IDownloadManager = {
   cancel: (id) => {
     if (id !== "r:f") throw new LlamactlError("download_not_found", "no such download");
   },
+  dismiss: (id) => {
+    if (id !== "r:f") throw new LlamactlError("download_not_found", "no such download");
+  },
+  retry: (id) => {
+    if (id !== "r:f") throw new LlamactlError("download_not_found", "no such download");
+    return {
+      id,
+      repo: "r",
+      file: "f",
+      destPath: "/x",
+      receivedBytes: 5,
+      totalBytes: 10,
+      status: "downloading",
+      error: null,
+      startedAt: 0,
+    };
+  },
 };
 type InstallCalls = {
   started: { repo: string }[];
@@ -333,6 +350,42 @@ test("POST /downloads/:id/cancel cancels a known id", async () => {
     headers: { authorization: `Bearer ${TOKEN}` },
   });
   expect(res.status).toBe(200);
+});
+
+test("POST /downloads/:id/retry resumes a known id and returns the list", async () => {
+  const res = await fetch(base() + "/downloads/r%3Af/retry", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { downloads: unknown[] };
+  expect(Array.isArray(body.downloads)).toBe(true);
+});
+
+test("POST /downloads/:id/retry for an unknown id => 404", async () => {
+  const res = await fetch(base() + "/downloads/nope/retry", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(404);
+});
+
+test("DELETE /downloads/:id dismisses a known id and returns the list", async () => {
+  const res = await fetch(base() + "/downloads/r%3Af", {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { downloads: unknown[] };
+  expect(Array.isArray(body.downloads)).toBe(true);
+});
+
+test("DELETE /downloads/:id for an unknown id => 404", async () => {
+  const res = await fetch(base() + "/downloads/nope", {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(res.status).toBe(404);
 });
 
 test("DELETE /models/:id removes a known model (files best-effort)", async () => {
