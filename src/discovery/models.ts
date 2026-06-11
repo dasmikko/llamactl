@@ -116,21 +116,13 @@ function stripShard(stem: string): string {
 }
 
 /**
- * Build a friendly display name: filename without extension, quant token and
- * shard suffix removed, separators tidied to spaces but still readable.
+ * Display name: the raw filename stem (extension already stripped) with only the
+ * multi-file shard suffix removed. The quant token and original separators are
+ * KEPT verbatim — e.g. "Qwen3.6-27B-Q4_K_M", "nomic-embed-text-v1.5.Q2_K" — so
+ * the name reads exactly like the file on disk and disambiguates quant variants.
  */
 function friendlyName(stem: string): string {
-  let name = stripShard(stem);
-  // Remove the quant token (with any adjacent separator) from the name.
-  const q = QUANT_RE.exec(name);
-  if (q && q[0]) {
-    name = name.replace(QUANT_RE, " ");
-  }
-  // Collapse runs of -, _ and whitespace into a space, but KEEP dots so version
-  // numbers like "3.1" / "Qwen3.5" / "0.6B" stay intact and readable.
-  name = name.replace(/[-_\s]+/g, " ");
-  // Collapse spaces and drop a stray separator dot left dangling at either end.
-  name = name.replace(/\s+/g, " ").replace(/^[.\s]+|[.\s]+$/g, "").trim();
+  const name = stripShard(stem).trim();
   return name.length > 0 ? name : stem;
 }
 
@@ -296,6 +288,7 @@ export async function discoverModels(opts?: DiscoverOptions): Promise<Model[]> {
       kvDim: meta.kvDim,
       kind: meta.kind,
       org: parseOrg(f.path),
+      repo: parseRepo(f.path),
     });
   }
   return models;

@@ -43,6 +43,8 @@ export interface Model {
   kind: ModelKind;
   /** Author/org the model came from (e.g. "unsloth"), derived from the path, or null. */
   org: string | null;
+  /** Hugging Face repo id ("org/name"), derived from the path, or null. Groups variants in the TUI. */
+  repo: string | null;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -12,9 +12,9 @@ import type {
   Config,
   Download,
   InstallsResponse,
+  InstanceConfig,
   LaunchSpec,
   Model,
-  StartRequest,
 } from "../types.ts";
 import { useDaemon } from "./useDaemon.ts";
 import { buildRows, filterRows, defaultSpecForRow, type Row } from "./rows.ts";
@@ -31,10 +31,13 @@ import { Installs } from "./Installs.tsx";
 import { BuildForm } from "./BuildForm.tsx";
 import { TextPrompt } from "./TextPrompt.tsx";
 import { ModelInfo } from "./ModelInfo.tsx";
+import { ProfileDialog } from "./ProfileDialog.tsx";
 import { openInBrowser } from "./browser.ts";
 
 type Mode =
   | "table"
+  | "launch"
+  | "profiles"
   | "edit"
   | "logs"
   | "help"
@@ -54,12 +57,14 @@ interface EditorState {
   initialSpec: LaunchSpec;
   /** Instance id to PUT, or null to POST a new instance. */
   instanceId: string | null;
-  /** Explicit id to create under (the model's inline config); else derived. */
-  createId?: string;
-  /** Whether the editable Name field is shown (hidden for a model's inline config). */
+  /** Whether the editable Name field is shown. */
   showName: boolean;
   /** The resolved model (when known) for the live memory estimate. */
   model: Model | undefined;
+  /** Mode to return to after submit/cancel (the table, or the profile manager). */
+  returnMode: Mode;
+  /** After creating, also launch the new spec immediately (the launch picker). */
+  launchAfter?: boolean;
 }
 
 /** A destructive action armed and awaiting confirmation. */
@@ -203,88 +208,59 @@ function App({ config }: AppProps): React.ReactElement {
     setPending(null);
   }, [selIdx, mode]);
 
-  const openEditor = (row: Row, asNew: boolean): void => {
-    const spec = defaultSpecForRow(row, config.defaultCtx, config.defaultGpuLayers);
-    if (asNew) {
-      // `n` → an additional profile (a testing variant) under this model. Blank
-      // name so the store derives + auto-disambiguates the id from the model.
-      setEditor({
-        title: `New profile · ${row.name}`,
-        initialName: "",
-        initialSpec: { ...spec },
-        instanceId: null,
-        showName: true,
-        model: row.model,
-      });
-    } else if (row.instance && row.isExtraProfile) {
-      // `e` on an additional profile row → edit that profile (name editable).
-      setEditor({
-        title: `Edit profile · ${row.instance.name}`,
-        initialName: row.instance.name,
-        initialSpec: { ...row.instance.spec },
-        instanceId: row.instance.id,
-        showName: true,
-        model: row.model,
-      });
-    } else if (row.instance) {
-      // `e` on a model row that already has an inline config → edit it in place.
-      // No name field: this is just the model's own flags.
-      setEditor({
-        title: `Edit flags · ${row.name}`,
-        initialName: row.instance.name,
-        initialSpec: { ...row.instance.spec },
-        instanceId: row.instance.id,
-        showName: false,
-        model: row.model,
-      });
-    } else {
-      // `e` on a model with no saved flags yet → create its inline config keyed
-      // by the model id (so it merges onto the model row, not a child). No name.
-      setEditor({
-        title: `Edit flags · ${row.name}`,
-        initialName: "",
-        initialSpec: { ...spec },
-        instanceId: null,
-        createId: row.modelId,
-        showName: false,
-        model: row.model,
-      });
-    }
+  // Open the flag editor to create a brand-new profile for `row`'s model. When
+  // `launchAfter` is set (the launch picker's "+ New"), the new spec is also
+  // started immediately. `returnMode` is where Esc/submit lands.
+  const openNewProfile = (
+    row: Row,
+    opts: { launchAfter: boolean; returnMode: Mode },
+  ): void => {
+    setEditor({
+      title: `New profile · ${row.name}`,
+      initialName: "",
+      initialSpec: defaultSpecForRow(row, config.defaultCtx, config.defaultGpuLayers),
+      instanceId: null,
+      showName: true,
+      model: row.model,
+      returnMode: opts.returnMode,
+      launchAfter: opts.launchAfter,
+    });
     setMode("edit");
   };
 
-  const onToggleRow = (row: Row): void => {
-    if (row.running) {
-      void stop(row.modelId);
-      return;
-    }
-    let req: StartRequest;
-    if (row.instance) {
-      req = { instance: row.instance.id };
-    } else {
-      req = { model: row.model?.id ?? row.modelId };
-    }
-    void start(req);
+  // Open the flag editor on an existing profile (from the profile manager).
+  const openEditProfile = (row: Row, profile: InstanceConfig): void => {
+    setEditor({
+      title: `Edit profile · ${profile.name}`,
+      initialName: profile.name,
+      initialSpec: { ...profile.spec },
+      instanceId: profile.id,
+      showName: true,
+      model: row.model,
+      returnMode: "profiles",
+    });
+    setMode("edit");
   };
 
   const onEditorSubmit = (result: FlagEditorResult): void => {
     const ed = editor;
     setEditor(null);
-    setMode("table");
+    setMode(ed?.returnMode ?? "table");
     if (!ed) return;
     if (ed.instanceId) {
-      void updateInstance(ed.instanceId, {
-        name: result.name,
-        spec: result.spec,
-      });
+      void updateInstance(ed.instanceId, { name: result.name, spec: result.spec });
     } else {
-      void createInstance(result.name, result.spec, ed.createId);
+      void createInstance(result.name, result.spec);
+      // The launch picker creates the profile and starts it in one step. Launch
+      // by inline spec so we don't have to wait for the new id to round-trip.
+      if (ed.launchAfter) void start({ spec: result.spec });
     }
   };
 
   const onEditorCancel = (): void => {
+    const ret = editor?.returnMode ?? "table";
     setEditor(null);
-    setMode("table");
+    setMode(ret);
   };
 
   // Top-level key handling, active only in table mode (modals own input then).
@@ -348,7 +324,9 @@ function App({ config }: AppProps): React.ReactElement {
       }
 
       if (key.return) {
-        if (!current.running) onToggleRow(current);
+        // Enter on a model opens the launch picker (Default / a saved profile /
+        // new). A running row is already up — Ctrl+S stops it.
+        if (!current.running) setMode("launch");
         return;
       }
       if (key.ctrl && input === "s") {
@@ -368,14 +346,18 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
       if (input === "e") {
-        openEditor(current, false);
+        // `e` opens the profile manager (switch / create / edit / delete).
+        setMode("profiles");
         return;
       }
       if (input === "n") {
-        openEditor(current, true);
+        // `n` jumps straight to creating a new profile for this model.
+        openNewProfile(current, { launchAfter: false, returnMode: "table" });
         return;
       }
       if (input === "d") {
+        // Delete a standalone (orphan) profile row. A discovered model's profiles
+        // are deleted from inside the profile manager instead.
         if (pending?.kind === "delete-instance") {
           void removeInstance(pending.id);
           setPending(null);
@@ -385,12 +367,11 @@ function App({ config }: AppProps): React.ReactElement {
         return;
       }
       if (input === "D") {
-        // Delete the model's file(s) from disk — only from a base model row
-        // (not an additional profile row), and refused while it's running.
+        // Delete the model's file(s) from disk — refused while it's running.
         if (pending?.kind === "delete-model") {
           void deleteModel(pending.id);
           setPending(null);
-        } else if (current.model && !current.isExtraProfile && !current.running) {
+        } else if (current.model && !current.running) {
           setPending({ kind: "delete-model", id: current.model.id, label: current.name });
         }
         return;
@@ -609,6 +590,7 @@ function App({ config }: AppProps): React.ReactElement {
               <Table
                 title="MODELS"
                 variant="catalog"
+                grouped
                 rows={modelRows}
                 selectedIndex={
                   selIdx >= runningRows.length + favoriteRows.length
@@ -637,8 +619,47 @@ function App({ config }: AppProps): React.ReactElement {
             setMode("table");
           }}
         />
-      ) : mode === "table" ? (
+      ) : mode === "table" || mode === "launch" || mode === "profiles" ? (
         <StatusBar filter={filter} />
+      ) : null}
+
+      {/* Launch picker / profile manager: a centered modal floating over the
+          catalog. It owns the keyboard while open (the app handler is gated to
+          table mode), so ↑/↓/Enter/Esc go to the dialog. */}
+      {(mode === "launch" || mode === "profiles") && current ? (
+        <Box
+          position="absolute"
+          width={columns}
+          height={screenRows}
+          justifyContent="center"
+          alignItems="center"
+        >
+          <ProfileDialog
+            variant={mode === "launch" ? "launch" : "manage"}
+            row={current}
+            defaultCtx={config.defaultCtx}
+            defaultGpuLayers={config.defaultGpuLayers}
+            onLaunchDefault={() => {
+              void start({
+                model: current.instance?.spec.model ?? current.model?.id ?? current.modelId,
+              });
+              setMode("table");
+            }}
+            onLaunchProfile={(p) => {
+              void start({ instance: p.id });
+              setMode("table");
+            }}
+            onNew={() =>
+              openNewProfile(current, {
+                launchAfter: mode === "launch",
+                returnMode: mode === "launch" ? "table" : "profiles",
+              })
+            }
+            onEdit={(p) => openEditProfile(current, p)}
+            onDelete={(p) => void removeInstance(p.id)}
+            onClose={() => setMode("table")}
+          />
+        </Box>
       ) : null}
 
       {/* Confirmation overlay: an absolutely-positioned, screen-centered modal
@@ -1016,7 +1037,7 @@ interface StatusBarProps {
 
 function StatusBar({ filter }: StatusBarProps): React.ReactElement {
   const hint =
-     "Enter start · Ctrl+S stop · f fav · o open · i info · e edit · n new · d/D del · l logs · p pull · P downloads · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
+     "Enter launch · e profiles · n new · Ctrl+S stop · f fav · o open · i info · l logs · D del · p pull · P downloads · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
   return (
     <Box>
       <Text dimColor>{hint}</Text>

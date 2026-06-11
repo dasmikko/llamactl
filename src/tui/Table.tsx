@@ -23,6 +23,12 @@ export interface TableProps {
   titleColor?: string;
   /** "full" shows runtime columns; "catalog" shows just name/quant/size/status. */
   variant?: "full" | "catalog";
+  /**
+   * Group rows under a colored repo/author header (catalog only). Rows arrive
+   * already clustered by `repo` from buildRows, so a header is emitted whenever
+   * the repo changes and the variant names sit indented beneath it.
+   */
+  grouped?: boolean;
   /** Placeholder shown when there are no rows. */
   emptyText?: string;
   /** Whether this table grows to fill remaining vertical space. */
@@ -37,8 +43,9 @@ export interface TableProps {
   maxRows?: number;
 }
 
-/** Columns shown in the compact "catalog" variant (the model list). */
-const CATALOG_HEADERS = new Set(["NAME", "AUTHOR", "ARCH", "MODE", "QUANT", "SIZE", "CTX", "STATUS"]);
+/** Columns shown in the compact "catalog" variant (the model list). The author
+ *  is intentionally absent: in the catalog it's promoted to a repo group header. */
+const CATALOG_HEADERS = new Set(["NAME", "ARCH", "MODE", "QUANT", "SIZE", "CTX", "STATUS"]);
 
 interface ColumnDef {
   header: string;
@@ -53,7 +60,8 @@ interface ColumnDef {
 
 function statusText(row: Row): string {
   if (row.running) return row.running.status;
-  if (row.instance) return "profile";
+  const n = row.profiles.length;
+  if (n > 0) return n === 1 ? "1 prof" : `${n} profs`;
   return "—";
 }
 
@@ -65,10 +73,7 @@ function ctxHuman(n: number | null | undefined): string {
 }
 
 const COLUMNS: ColumnDef[] = [
-  // Additional profile rows are indented with a tree marker so they read as
-  // nested under their model's base row (the inline config stays on the model row).
-  { header: "NAME", width: 26, get: (r) => (r.isExtraProfile ? `  ↳ ${r.name}` : r.name) },
-  { header: "AUTHOR", width: 14, catalogOnly: true, get: (r) => r.model?.org ?? "—" },
+  { header: "NAME", width: 26, get: (r) => r.name },
   { header: "ARCH", width: 9, catalogOnly: true, get: (r) => r.model?.arch ?? "—" },
   { header: "MODE", width: 6, catalogOnly: true, get: (r) => r.model?.kind ?? "—" },
   { header: "QUANT", width: 9, get: (r) => r.quant ?? "—" },
@@ -153,6 +158,10 @@ function pad(s: string, width: number, right: boolean): string {
 const FAV_GUTTER = 2;
 /** Filled star for a favorited row; a space otherwise (keeps columns aligned). */
 const FAV_STAR = "★";
+/** Color of the repo/author group headers in the grouped catalog. */
+const GROUP_COLOR = "#5f87ff";
+/** Header label for rows that have no parsed repo (bare local files). */
+const NO_REPO_LABEL = "local models";
 
 function statusColor(row: Row): string | undefined {
   if (!row.running) return undefined;
@@ -178,6 +187,7 @@ function TableImpl({
   title,
   titleColor = "cyan",
   variant = "full",
+  grouped = false,
   emptyText = "(none)",
   fill = false,
   width,
@@ -205,17 +215,39 @@ function TableImpl({
     " ".repeat(FAV_GUTTER) +
     cols.map((c) => pad(c.header, c.width, c.alignRight ?? false)).join(" ");
 
-  // Window the rows when there are more than will fit, reserving one line for
-  // the scroll indicator. The selected row stays in view (see windowSlice).
-  const scrolling = maxRows != null && rows.length > maxRows;
-  const { start, end } = scrolling
-    ? windowSlice(rows.length, selectedIndex, Math.max(1, maxRows - 1))
-    : { start: 0, end: rows.length };
-  const visible = rows.slice(start, end);
-  const hiddenAbove = start;
-  const hiddenBelow = rows.length - end;
+  // Render one data row at absolute index `idx`. The star gutter doubles as the
+  // group indent in the grouped catalog (repo headers sit flush-left, rows hang
+  // two columns in beneath them).
+  const renderRow = (row: Row, idx: number): React.ReactElement => {
+    const selected = idx === selectedIndex;
+    const star = row.isFavorite ? FAV_STAR : " ";
+    const line = cols
+      .map((c) => pad(c.get(row, now), c.width, c.alignRight ?? false))
+      .join(" ");
+    // Selected rows invert the whole line (star included) so the highlight bar
+    // is unbroken; unselected rows color the star gold independently of the
+    // status color applied to the rest of the row.
+    if (selected) {
+      return (
+        <Text key={row.key} inverse>
+          {star} {line}
+        </Text>
+      );
+    }
+    const sc = statusColor(row);
+    return (
+      <Text key={row.key}>
+        <Text color="yellow">{star}</Text>{" "}
+        <Text color={sc}>{line}</Text>
+      </Text>
+    );
+  };
 
-  return (
+  const repoLabel = (r: Row): string => r.repo ?? NO_REPO_LABEL;
+  const clamp = (s: string): string =>
+    width && s.length > width ? s.slice(0, width - 1) + "…" : s;
+
+  const chrome = (body: React.ReactNode): React.ReactElement => (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0}>
       {title ? (
         <Text bold color={titleColor}>
@@ -225,34 +257,94 @@ function TableImpl({
       <Text bold color="gray">
         {headerLine}
       </Text>
-      {rows.length === 0 ? (
-        <Text dimColor>{emptyText}</Text>
-      ) : (
-        visible.map((row, i) => {
-          const selected = start + i === selectedIndex;
-          const star = row.isFavorite ? FAV_STAR : " ";
-          const line = cols
-            .map((c) => pad(c.get(row, now), c.width, c.alignRight ?? false))
-            .join(" ");
-          // Selected rows invert the whole line (star included) so the highlight
-          // bar is unbroken; unselected rows color the star gold independently of
-          // the status color applied to the rest of the row.
-          if (selected) {
-            return (
-              <Text key={row.key} inverse>
-                {star} {line}
-              </Text>
-            );
-          }
-          const sc = statusColor(row);
-          return (
-            <Text key={row.key}>
-              <Text color="yellow">{star}</Text>{" "}
-              <Text color={sc}>{line}</Text>
+      {rows.length === 0 ? <Text dimColor>{emptyText}</Text> : body}
+    </Box>
+  );
+
+  if (grouped) {
+    // Interleave repo headers with their rows, then window over the combined
+    // line list so headers count toward the height budget. selDisplay is where
+    // the selected row lands in that combined list.
+    type Item =
+      | { kind: "header"; label: string; key: string }
+      | { kind: "row"; row: Row; idx: number };
+    const items: Item[] = [];
+    let prevLabel: string | null = null;
+    rows.forEach((row, idx) => {
+      const label = repoLabel(row);
+      if (label !== prevLabel) {
+        items.push({ kind: "header", label, key: `h:${label}` });
+        prevLabel = label;
+      }
+      items.push({ kind: "row", row, idx });
+    });
+    const selDisplay =
+      selectedIndex < 0
+        ? -1
+        : items.findIndex((it) => it.kind === "row" && it.idx === selectedIndex);
+
+    // Reserve two lines when scrolling: one for the scroll indicator, one for a
+    // sticky header repeating the group of the top row when it scrolled off.
+    const scrolling = maxRows != null && items.length > maxRows;
+    const capacity = scrolling ? Math.max(1, maxRows! - 2) : items.length;
+    const { start, end } = scrolling
+      ? windowSlice(items.length, selDisplay, capacity)
+      : { start: 0, end: items.length };
+    const visible = items.slice(start, end);
+
+    let sticky: string | null = null;
+    if (scrolling && visible[0]?.kind === "row") {
+      for (let i = start; i >= 0; i--) {
+        const it = items[i];
+        if (it?.kind === "header") {
+          sticky = it.label;
+          break;
+        }
+      }
+    }
+    const hiddenAbove = items.slice(0, start).filter((it) => it.kind === "row").length;
+    const hiddenBelow = items.slice(end).filter((it) => it.kind === "row").length;
+
+    return chrome(
+      <>
+        {sticky ? (
+          <Text bold color={GROUP_COLOR} dimColor>
+            {clamp(sticky)}
+          </Text>
+        ) : null}
+        {visible.map((it) =>
+          it.kind === "header" ? (
+            <Text key={it.key} bold color={GROUP_COLOR}>
+              {clamp(it.label)}
             </Text>
-          );
-        })
-      )}
+          ) : (
+            renderRow(it.row, it.idx)
+          ),
+        )}
+        {scrolling ? (
+          <Text dimColor>
+            {hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : ""}
+            {hiddenAbove > 0 && hiddenBelow > 0 ? "   " : ""}
+            {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
+          </Text>
+        ) : null}
+      </>,
+    );
+  }
+
+  // Flat (ungrouped) rendering: window the rows directly, reserving one line for
+  // the scroll indicator. The selected row stays in view (see windowSlice).
+  const scrolling = maxRows != null && rows.length > maxRows;
+  const { start, end } = scrolling
+    ? windowSlice(rows.length, selectedIndex, Math.max(1, maxRows - 1))
+    : { start: 0, end: rows.length };
+  const visible = rows.slice(start, end);
+  const hiddenAbove = start;
+  const hiddenBelow = rows.length - end;
+
+  return chrome(
+    <>
+      {visible.map((row, i) => renderRow(row, start + i))}
       {scrolling ? (
         <Text dimColor>
           {hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : ""}
@@ -260,7 +352,7 @@ function TableImpl({
           {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
         </Text>
       ) : null}
-    </Box>
+    </>,
   );
 }
 

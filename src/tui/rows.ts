@@ -1,12 +1,11 @@
 /**
  * Row-join logic shared by the table and the app's key handling. A discovered
- * Model gets a base row. A model's *inline* config — the profile whose id equals
- * the model id (the one `e` edits) — merges into that base row, so editing a
- * model's flags stays on one line. Any *additional* profiles (created with `n`,
- * for testing variants) each get their own indented row grouped directly beneath
- * the model (a profile whose model isn't discovered still appears as its own
- * row). Each row is annotated with its running state and per-instance stats so
- * the presentational Table is dumb.
+ * Model gets exactly one row that carries ALL of its saved profiles in
+ * `profiles` (the launch picker and profile manager choose among them). Saved
+ * profiles are no longer rows of their own — except an orphan profile, whose
+ * model isn't discovered, which still appears as its own standalone row so it
+ * stays reachable. Each row is annotated with its running state and per-instance
+ * stats so the presentational Table is dumb.
  */
 
 import type {
@@ -18,37 +17,46 @@ import type {
   LaunchSpec,
 } from "../types.ts";
 
-/** A merged, display-ready row. */
+/**
+ * A merged, display-ready row. There is exactly one row per discovered model
+ * (plus standalone rows for orphan profiles/running children). A model's saved
+ * profiles are NOT separate rows anymore — they hang off `profiles` and are
+ * chosen from the launch picker / profile manager instead.
+ */
 export interface Row {
-  /**
-   * Unique, stable React/selection key for this row. Distinct from `modelId`
-   * because a model and its profiles share a model id but are separate rows.
-   */
+  /** Unique, stable React/selection key for this row. */
   key: string;
   /** Canonical model id this row keys on (for running/stop/stats joins). */
   modelId: string;
   /** Id used in the favorites set for this row (model id or instance id). */
   favoriteId: string;
-  /** Sort group: the parent model's id, so profiles cluster under it. */
+  /** Sort group: the parent model's id. */
   groupId: string;
   /** Sort group label: the parent model's display name. */
   groupName: string;
-  /** Display name (instance name preferred, else model name, else id). */
+  /** Display name (model name, else instance name, else id). */
   name: string;
   /** Quant label, if known from a discovered model. */
   quant: string | null;
+  /**
+   * Repo/author this row groups under in the catalog (model's HF repo, else its
+   * org). Null when neither is known (a bare local file or orphan profile).
+   */
+  repo: string | null;
   /** File size in bytes, if the model is discovered. */
   sizeBytes: number | null;
   /** The discovered model, if any. */
   model: Model | undefined;
-  /** The saved instance profile, if this row corresponds to one. */
-  instance: InstanceConfig | undefined;
   /**
-   * True for an *additional* profile row (one of a model's testing variants),
-   * which renders indented under its model. False for a base model row even
-   * when it carries an inline profile.
+   * Saved profiles launchable for this model, sorted by name. Empty when the
+   * model has none (launching then uses config defaults).
    */
-  isExtraProfile: boolean;
+  profiles: InstanceConfig[];
+  /**
+   * Set only for a standalone row that *is* a single saved profile whose model
+   * isn't discovered (an orphan). Undefined for ordinary model rows.
+   */
+  instance: InstanceConfig | undefined;
   /** The running child, if this model is up. */
   running: RunningModel | undefined;
   /** Per-instance stats, if running and sampled. */
@@ -58,13 +66,12 @@ export interface Row {
 }
 
 /**
- * Build the merged row list. Each discovered model gets a base row, and every
- * saved profile gets its own row grouped beneath the model it targets. Running
- * state and stats join onto the model id (the supervisor runs one child per
- * model). Deterministic ordering: running rows first (the ACTIVE INSTANCES
- * section), then favorites, then the rest grouped so a model's profiles sit
- * directly under it. `favorites` is the set of starred favorite ids (model or
- * instance ids).
+ * Build the merged row list. Each discovered model gets one row carrying its
+ * profiles; orphan profiles and orphan running children get standalone rows.
+ * Running state and stats join onto the model id (the supervisor runs one child
+ * per model). Deterministic ordering: running rows first (the ACTIVE INSTANCES
+ * section), then favorites, then the rest clustered by repo. `favorites` is the
+ * set of starred favorite ids (model or instance ids).
  */
 export function buildRows(
   models: Model[],
@@ -88,22 +95,27 @@ export function buildRows(
     }
   }
 
-  // Split saved profiles into each model's inline config (id === model id, the
-  // one merged onto the model's row) and the additional profiles (everything
-  // else, rendered as indented child rows).
-  const inlineByModel = new Map<string, InstanceConfig>();
-  const extras: InstanceConfig[] = [];
+  // Group every saved profile under the model it targets (exact id match).
+  // Profiles whose selector resolves to no discovered model are orphans and get
+  // their own standalone row so they stay reachable.
+  const profilesByModel = new Map<string, InstanceConfig[]>();
+  const orphanProfiles: InstanceConfig[] = [];
   for (const inst of instances) {
     const parent = modelById.get(inst.spec.model);
-    if (parent && inst.id === parent.id) inlineByModel.set(parent.id, inst);
-    else extras.push(inst);
+    if (parent) {
+      const arr = profilesByModel.get(parent.id) ?? [];
+      arr.push(inst);
+      profilesByModel.set(parent.id, arr);
+    } else {
+      orphanProfiles.push(inst);
+    }
   }
+  const sortByName = (a: InstanceConfig, b: InstanceConfig): number =>
+    a.name.localeCompare(b.name);
 
-  // A favorite is tracked per group, not per row: starring a model floats its
-  // additional profiles up with it (and starring a profile floats its model),
-  // so a model and its profiles never get split across the favorites/catalog
-  // sections. A group is a favorite if its model id, or any of its profiles'
-  // ids, is in the favorites set.
+  // A favorite is tracked per group: starring a model (or any of its profiles)
+  // floats the model's row up. A group is a favorite if its model id, or any of
+  // its profiles' ids, is in the favorites set.
   const favoriteGroups = new Set<string>();
   for (const m of models) if (favorites.has(m.id)) favoriteGroups.add(m.id);
   for (const inst of instances) {
@@ -115,7 +127,7 @@ export function buildRows(
 
   const rows: Row[] = [];
 
-  // One base row per discovered model, carrying its inline config (if any).
+  // One row per discovered model, carrying all of its launchable profiles.
   // Running/stats join here by model id (the supervisor runs one child per model).
   for (const m of models) {
     const run = runByModel.get(m.id);
@@ -129,35 +141,35 @@ export function buildRows(
       groupName: m.name,
       name: m.name,
       quant: m.quant ?? null,
+      repo: m.repo ?? m.org,
       sizeBytes: m.sizeBytes ?? null,
       model: m,
-      instance: inlineByModel.get(m.id),
-      isExtraProfile: false,
+      profiles: (profilesByModel.get(m.id) ?? []).slice().sort(sortByName),
+      instance: undefined,
       running: run,
       stats: stat,
       isFavorite: favoriteGroups.has(m.id),
     });
   }
 
-  // One indented child row per additional profile, grouped under its model when
-  // the selector resolves to a discovered model; otherwise it stands alone.
-  for (const inst of extras) {
-    const parent = modelById.get(inst.spec.model);
+  // One standalone row per orphan profile (its model isn't discovered).
+  for (const inst of orphanProfiles) {
     rows.push({
       key: `i:${inst.id}`,
-      modelId: parent ? parent.id : inst.id,
+      modelId: inst.id,
       favoriteId: inst.id,
-      groupId: parent ? parent.id : inst.id,
-      groupName: parent ? parent.name : inst.name,
+      groupId: inst.id,
+      groupName: inst.name,
       name: inst.name,
-      quant: parent?.quant ?? null,
-      sizeBytes: parent?.sizeBytes ?? null,
-      model: parent,
+      quant: null,
+      repo: null,
+      sizeBytes: null,
+      model: undefined,
+      profiles: [inst],
       instance: inst,
-      isExtraProfile: true,
       running: undefined,
       stats: undefined,
-      isFavorite: favoriteGroups.has(parent ? parent.id : inst.id),
+      isFavorite: favoriteGroups.has(inst.id),
     });
   }
 
@@ -173,19 +185,18 @@ export function buildRows(
       groupName: r.name,
       name: r.name,
       quant: null,
+      repo: null,
       sizeBytes: null,
       model: undefined,
+      profiles: [],
       instance: undefined,
-      isExtraProfile: false,
       running: r,
       stats: stat,
       isFavorite: favoriteGroups.has(r.modelId),
     });
   }
 
-  // Ordering: running first, then favorites, then the rest grouped so each
-  // model's profiles sit directly beneath its base row (base before profiles,
-  // profiles by name). groupId is the tiebreak when two groups share a name.
+  // Ordering: running first, then favorites, then the rest clustered by repo.
   const rank = (r: Row): number => {
     if (r.running) return 0;
     if (r.isFavorite) return 1;
@@ -195,11 +206,13 @@ export function buildRows(
     const ra = rank(a);
     const rb = rank(b);
     if (ra !== rb) return ra - rb;
+    // Cluster by repo so the catalog renders one header per repo with its
+    // variants beneath (rows without a repo sort last).
+    const repoA = a.repo ?? "￿";
+    const repoB = b.repo ?? "￿";
+    if (repoA !== repoB) return repoA.localeCompare(repoB);
     if (a.groupName !== b.groupName) return a.groupName.localeCompare(b.groupName);
     if (a.groupId !== b.groupId) return a.groupId.localeCompare(b.groupId);
-    const sa = a.isExtraProfile ? 1 : 0;
-    const sb = b.isExtraProfile ? 1 : 0;
-    if (sa !== sb) return sa - sb;
     return a.name.localeCompare(b.name);
   });
 
@@ -211,9 +224,8 @@ export function filterRows(rows: Row[], filter: string): Row[] {
   const q = filter.trim().toLowerCase();
   if (q === "") return rows;
   return rows.filter((r) => {
-    const hay = `${r.name} ${r.modelId} ${r.quant ?? ""} ${
-      r.instance?.id ?? ""
-    }`.toLowerCase();
+    const profileHay = r.profiles.map((p) => `${p.name} ${p.id}`).join(" ");
+    const hay = `${r.name} ${r.modelId} ${r.quant ?? ""} ${profileHay}`.toLowerCase();
     return hay.includes(q);
   });
 }

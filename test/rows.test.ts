@@ -17,6 +17,7 @@ function model(id: string, name = id): Model {
     kvDim: 128,
     kind: "text",
     org: null,
+    repo: null,
   };
 }
 
@@ -46,29 +47,29 @@ function running(modelId: string): RunningModel {
 }
 
 describe("buildRows", () => {
-  test("each model gets a base row with a unique key", () => {
+  test("each model gets a base row with a unique key and no profiles", () => {
     const rows = buildRows([model("a"), model("b")], [], [], null);
     expect(rows.map((r) => r.key)).toEqual(["m:a", "m:b"]);
     expect(rows.every((r) => r.instance === undefined)).toBe(true);
-    expect(rows.every((r) => !r.isExtraProfile)).toBe(true);
+    expect(rows.every((r) => r.profiles.length === 0)).toBe(true);
   });
 
-  test("inline config (id === model id) merges into the model row, not a child", () => {
+  test("a model's profile attaches to its row, not a separate row", () => {
     const rows = buildRows(
       [model("qwen")],
       [instance("qwen", "qwen", "qwen")],
       [],
       null,
     );
-    // Just the model row — the inline profile rides on it (one line).
+    // Just the model row — the profile hangs off it (chosen from the picker).
     expect(rows.map((r) => r.key)).toEqual(["m:qwen"]);
-    expect(rows[0]!.instance?.id).toBe("qwen");
-    expect(rows[0]!.isExtraProfile).toBe(false);
+    expect(rows[0]!.instance).toBeUndefined();
+    expect(rows[0]!.profiles.map((p) => p.id)).toEqual(["qwen"]);
   });
 
-  test("inline config merges even when the model id has dots/underscores", () => {
-    // Regression: the store's slugify mangles "qwen2.5" → "qwen2-5"; the inline
-    // config is created with the exact model id, so it must still merge inline.
+  test("profiles attach even when the model id has dots/underscores", () => {
+    // The store's slugify mangles "qwen2.5" → "qwen2-5"; a profile created with
+    // the exact model id must still resolve to its model.
     const rows = buildRows(
       [model("qwen2.5-7b")],
       [instance("qwen2.5-7b", "qwen2.5-7b", "qwen2.5-7b")],
@@ -76,38 +77,35 @@ describe("buildRows", () => {
       null,
     );
     expect(rows.map((r) => r.key)).toEqual(["m:qwen2.5-7b"]);
-    expect(rows[0]!.instance?.id).toBe("qwen2.5-7b");
-    expect(rows[0]!.isExtraProfile).toBe(false);
+    expect(rows[0]!.profiles.map((p) => p.id)).toEqual(["qwen2.5-7b"]);
   });
 
-  test("additional profiles render as indented child rows under the model", () => {
+  test("all of a model's profiles attach to its single row, sorted by name", () => {
     const rows = buildRows(
       [model("qwen")],
       [
-        instance("qwen", "qwen", "qwen"), // inline
+        instance("qwen", "qwen", "qwen"),
         instance("qwen-2", "qwen", "long-ctx"),
         instance("qwen-3", "qwen", "cpu"),
       ],
       [],
       null,
     );
-    // Inline merges onto the model row; the extras are children beneath it,
-    // sorted by display name ("cpu" before "long-ctx").
-    expect(rows.map((r) => r.key)).toEqual(["m:qwen", "i:qwen-3", "i:qwen-2"]);
-    expect(rows[0]!.isExtraProfile).toBe(false);
-    expect(rows.slice(1).every((r) => r.isExtraProfile)).toBe(true);
-    expect(rows.slice(1).every((r) => r.groupId === "qwen")).toBe(true);
-    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+    // One row for the model; every profile hangs off it, sorted by display name.
+    expect(rows.map((r) => r.key)).toEqual(["m:qwen"]);
+    expect(rows[0]!.profiles.map((p) => p.name)).toEqual(["cpu", "long-ctx", "qwen"]);
   });
 
-  test("profiles sort beneath their own model, not another", () => {
+  test("each model carries only its own profiles", () => {
     const rows = buildRows(
       [model("alpha"), model("beta")],
       [instance("b1", "beta"), instance("a1", "alpha")],
       [],
       null,
     );
-    expect(rows.map((r) => r.key)).toEqual(["m:alpha", "i:a1", "m:beta", "i:b1"]);
+    expect(rows.map((r) => r.key)).toEqual(["m:alpha", "m:beta"]);
+    expect(rows[0]!.profiles.map((p) => p.id)).toEqual(["a1"]);
+    expect(rows[1]!.profiles.map((p) => p.id)).toEqual(["b1"]);
   });
 
   test("a profile whose model isn't discovered stands as its own row", () => {
@@ -115,6 +113,8 @@ describe("buildRows", () => {
     expect(rows.map((r) => r.key)).toEqual(["i:ghost"]);
     expect(rows[0]!.model).toBeUndefined();
     expect(rows[0]!.modelId).toBe("ghost");
+    expect(rows[0]!.instance?.id).toBe("ghost");
+    expect(rows[0]!.profiles.map((p) => p.id)).toEqual(["ghost"]);
   });
 
   test("running model floats to the top and carries the running child", () => {
@@ -128,7 +128,7 @@ describe("buildRows", () => {
     expect(rows[0]!.running).toBeDefined();
   });
 
-  test("favorites float above the rest by favoriteId", () => {
+  test("favoriting a profile floats its model row above the rest", () => {
     const rows = buildRows(
       [model("a"), model("b")],
       [instance("p", "a", "prof")],
@@ -136,15 +136,46 @@ describe("buildRows", () => {
       null,
       new Set(["p"]),
     );
-    // Favoriting a profile floats its whole group (its model + the profile)
-    // above the plain model rows, keeping them together: base before profile.
-    expect(rows.map((r) => r.key)).toEqual(["m:a", "i:p", "m:b"]);
+    // The profile has no row of its own; starring it floats its model's row.
+    expect(rows.map((r) => r.key)).toEqual(["m:a", "m:b"]);
     expect(rows[0]!.isFavorite).toBe(true);
-    expect(rows[1]!.isFavorite).toBe(true);
-    expect(rows[2]!.isFavorite).toBe(false);
+    expect(rows[0]!.profiles.map((p) => p.id)).toEqual(["p"]);
+    expect(rows[1]!.isFavorite).toBe(false);
   });
 
-  test("favoriting a model floats its profiles up with it", () => {
+  test("catalog rows cluster by repo, repo-less rows sort last", () => {
+    const withRepo = (id: string, repo: string | null): Model => ({
+      ...model(id),
+      repo,
+    });
+    const rows = buildRows(
+      [
+        withRepo("z-local", null),
+        withRepo("nomic-q4", "nomic-ai/nomic-embed"),
+        withRepo("bart-q8", "bartowski/qwen"),
+        withRepo("nomic-q2", "nomic-ai/nomic-embed"),
+      ],
+      [],
+      [],
+      null,
+    );
+    // bartowski < nomic-ai by repo; within nomic the two variants sort by name;
+    // the repo-less local file sinks to the bottom.
+    expect(rows.map((r) => r.key)).toEqual([
+      "m:bart-q8",
+      "m:nomic-q2",
+      "m:nomic-q4",
+      "m:z-local",
+    ]);
+    expect(rows[3]!.repo).toBeNull();
+  });
+
+  test("a row's repo falls back to org when no repo is parsed", () => {
+    const rows = buildRows([{ ...model("a"), repo: null, org: "unsloth" }], [], [], null);
+    expect(rows[0]!.repo).toBe("unsloth");
+  });
+
+  test("favoriting a model floats its row up with its profiles attached", () => {
     const rows = buildRows(
       [model("a"), model("b")],
       [instance("p", "a", "prof")],
@@ -152,11 +183,9 @@ describe("buildRows", () => {
       null,
       new Set(["a"]),
     );
-    // Starring the model carries its additional profile into the favorites
-    // group rather than leaving it behind in the catalog.
-    expect(rows.map((r) => r.key)).toEqual(["m:a", "i:p", "m:b"]);
+    expect(rows.map((r) => r.key)).toEqual(["m:a", "m:b"]);
     expect(rows[0]!.isFavorite).toBe(true);
-    expect(rows[1]!.isFavorite).toBe(true);
-    expect(rows[2]!.isFavorite).toBe(false);
+    expect(rows[0]!.profiles.map((p) => p.id)).toEqual(["p"]);
+    expect(rows[1]!.isFavorite).toBe(false);
   });
 });

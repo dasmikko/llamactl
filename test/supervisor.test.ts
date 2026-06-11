@@ -31,6 +31,7 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     kvDim: null,
     kind: "text",
     org: null,
+    repo: null,
     ...overrides,
   };
 }

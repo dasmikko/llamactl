@@ -90,8 +90,16 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
   All cross-sample state lives in `src/monitor/sampler.ts`; `proc.ts`/`nvidia.ts`
   are stateless and expose pure parse helpers for tests.
 - **TUI selection** is tracked by `modelId`, not row index, so the cursor follows
-  a model when the list re-sorts. The list is two sections (ACTIVE INSTANCES /
-  MODELS catalog) computed in `src/tui/rows.ts`.
+  a model when the list re-sorts. The list is sections (ACTIVE INSTANCES /
+  ★ FAVORITES / MODELS catalog) computed in `src/tui/rows.ts`. The MODELS catalog
+  is **grouped by HF repo** (a colored header per `repo`, variants indented).
+- **Profiles are not rows.** Each discovered model is one row carrying all its
+  saved profiles in `Row.profiles`. `Enter` opens the launch picker (Default / a
+  saved profile / + New) and `e` opens the profile manager (switch / create /
+  edit / delete) — both are `ProfileDialog` (`src/tui/ProfileDialog.tsx`). Only an
+  *orphan* profile (its model isn't discovered) still gets its own standalone row.
+- **Model display names** are the raw GGUF filename stem (shard suffix removed,
+  quant + separators kept) — see `friendlyName` in `src/discovery/models.ts`.
 - **Security:** control plane is loopback-only + bearer token (constant-time
   compare, rotated each start, never logged). Instances default to 127.0.0.1.
 
