@@ -706,7 +706,6 @@ async function cmdInstallBuild(
   if (backend !== undefined) body.backend = backend as LlamaBackend;
   const name = strOpt(args, "name");
   if (name !== undefined) body.name = name;
-  if (boolOpt(args, "keep-source")) body.keepSource = true;
   if (boolOpt(args, "allow-unsupported-compiler")) body.allowUnsupportedCompiler = true;
   const cudaHost = strOpt(args, "cuda-host-compiler");
   if (cudaHost !== undefined) body.cudaHostCompiler = cudaHost;

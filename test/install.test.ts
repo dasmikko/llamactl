@@ -210,25 +210,19 @@ describe("InstallManager", () => {
     expect(mgr.installs()[0]!.repo).toBe("https://github.com/ggml-org/llama.cpp");
   });
 
-  test("prune by default: src/build removed, bin/llama-server kept", async () => {
+  test("keeps the build tree and runs llama-server in place from build/bin", async () => {
     const mgr = await load();
     const job = mgr.start({ repo: "r", ref: "master" });
     await waitTerminal(mgr, job.id);
 
     const dir = join(installsDir, job.id);
-    expect(await dirExists(join(dir, "src"))).toBe(false);
-    expect(await dirExists(join(dir, "build"))).toBe(false);
-    expect(await Bun.file(join(dir, "bin", "llama-server")).exists()).toBe(true);
-  });
-
-  test("keepSource keeps src and build dirs", async () => {
-    const mgr = await load();
-    const job = mgr.start({ repo: "r", ref: "master", keepSource: true });
-    await waitTerminal(mgr, job.id);
-
-    const dir = join(installsDir, job.id);
+    // Source + build tree are kept so the binary's rpath resolves its libs.
     expect(await dirExists(join(dir, "src"))).toBe(true);
     expect(await dirExists(join(dir, "build"))).toBe(true);
+    // binPath points at the in-place binary, not a copied bin/ dir.
+    const install = mgr.installs()[0]!;
+    expect(install.binPath).toBe(join(dir, "build", "bin", "llama-server"));
+    expect(await Bun.file(install.binPath).exists()).toBe(true);
   });
 
   test("missing toolchain ends the job in error mentioning the tool", async () => {
@@ -320,7 +314,7 @@ describe("InstallManager", () => {
     expect(mgr2.getActive()?.id).toBe(b.id);
   });
 
-  test("build step failure ends the job in error and cleans the dir", async () => {
+  test("build step failure keeps the source tree for inspection", async () => {
     ctl.failOn.set("cmake --build", 2);
     const mgr = await load();
     const job = mgr.start({ repo: "r", ref: "master" });
@@ -328,6 +322,15 @@ describe("InstallManager", () => {
     const done = await waitTerminal(mgr, job.id);
     expect(done.status).toBe("error");
     expect(done.error ?? "").toContain("exit 2");
+    // The dir is kept so the user can inspect why it failed and retry.
+    expect(await dirExists(join(installsDir, job.id))).toBe(true);
+  });
+
+  test("cancel discards the partial install dir", async () => {
+    const mgr = await load();
+    const job = mgr.start({ repo: "r", ref: "master" });
+    mgr.cancel(job.id);
+    await waitTerminal(mgr, job.id);
     expect(await dirExists(join(installsDir, job.id))).toBe(false);
   });
 

@@ -1,16 +1,16 @@
 /**
- * The llama.cpp build pipeline: clone → configure → build → install → prune. It
- * runs commands through an injectable {@link BuildRunner} seam so tests can drive
- * the whole flow without real git/cmake. Each step reports progress via
- * `onStatus`/`onLine` callbacks so the InstallManager can mirror it onto a
- * BuildJob record.
+ * The llama.cpp build pipeline: clone → configure → build. It runs commands
+ * through an injectable {@link BuildRunner} seam so tests can drive the whole
+ * flow without real git/cmake. Each step reports progress via `onStatus`/`onLine`
+ * callbacks so the InstallManager can mirror it onto a BuildJob record.
  *
- * The configure step pins an `$ORIGIN` rpath so the produced `llama-server`
- * binary finds its sibling ggml `.so` files after the build dir is pruned, which
- * lets us keep installs small.
+ * We keep the whole build tree and run `llama-server` in place from `build/bin`,
+ * where CMake already wired its rpath to find every shared library it links
+ * (libggml*, libllama, libllama-common, …). An `$ORIGIN`-relative rpath is also
+ * requested so the entire install directory stays relocatable as a unit.
  */
 
-import { chmod, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { BuildStatus, LlamaBackend } from "../types.ts";
@@ -52,7 +52,6 @@ export interface BuildParams {
   repo: string;
   ref: string;
   backend: LlamaBackend;
-  keepSource: boolean;
   /**
    * Pass `-allow-unsupported-compiler` to nvcc (CUDA builds only). Use when the
    * host compiler is newer than the CUDA toolkit officially supports and nvcc
@@ -237,8 +236,9 @@ async function dirSize(dir: string): Promise<number | null> {
 }
 
 /**
- * Perform a full build into `installDir`. Cleans up nothing on failure here; the
- * manager prunes the partial dir. Throws:
+ * Perform a full build into `installDir`, keeping the source + build tree so
+ * llama-server runs in place. Cleans up nothing here; the manager discards the
+ * dir only on an explicit cancel (a failed build is kept for inspection). Throws:
  *  - LlamactlError("missing_toolchain") when prerequisites are absent,
  *  - BuildCanceledError when the signal aborts,
  *  - LlamactlError("build_failed") on any non-zero step or a missing binary.
@@ -246,7 +246,6 @@ async function dirSize(dir: string): Promise<number | null> {
 export async function runBuild(p: BuildParams): Promise<BuildResult> {
   const src = join(p.installDir, "src");
   const build = join(p.installDir, "build");
-  const binDir = join(p.installDir, "bin");
 
   // 1. Prereqs (before any "cloning" status so a missing toolchain is instant).
   probeToolchain(p.runner, p.backend);
@@ -316,8 +315,9 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
     "-DLLAMA_CURL=OFF",
     "-DLLAMA_BUILD_SERVER=ON",
     `-DGGML_CUDA=${cudaFlag}`,
+    // Make the build-tree rpath $ORIGIN-relative so the whole install dir can be
+    // moved as a unit and llama-server still finds its sibling .so files.
     "-DCMAKE_BUILD_RPATH_USE_ORIGIN=ON",
-    "-DCMAKE_INSTALL_RPATH=$ORIGIN",
   ];
   if (allowUnsupported) {
     configureArgs.push("-DCMAKE_CUDA_FLAGS=-allow-unsupported-compiler");
@@ -348,11 +348,11 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
     });
   }
 
-  // 5. Install: copy the whole build/bin (binary + sibling .so files) into bin/.
+  // 5. Locate the in-place binary. We keep the whole build tree and run
+  // llama-server straight from build/bin, so its CMake-wired rpath resolves
+  // every shared library it links — no copying, no missing libs.
   p.onStatus("installing");
-  await mkdir(binDir, { recursive: true });
-  await cp(join(build, "bin"), binDir, { recursive: true });
-  const binPath = join(binDir, "llama-server");
+  const binPath = join(build, "bin", "llama-server");
   if (!(await Bun.file(binPath).exists())) {
     throw new LlamactlError("build_failed", "build produced no llama-server binary", {
       detail: { step: "install", binPath },
@@ -361,13 +361,7 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
   await chmod(binPath, 0o755);
   checkCanceled(p.signal);
 
-  // 6. Prune source + build dirs unless asked to keep them.
-  if (!p.keepSource) {
-    await rm(src, { recursive: true, force: true });
-    await rm(build, { recursive: true, force: true });
-  }
-
-  // 7. Version probe (best-effort; the real binary is needed, null otherwise).
+  // 6. Version probe (best-effort; the real binary is needed, null otherwise).
   let version: string | null = null;
   try {
     const ver = await runStep(p, [binPath, "--version"]);
@@ -376,7 +370,7 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
     /* a flaky --version must not fail an otherwise good build */
   }
 
-  // 8. Size (best-effort).
+  // 7. Size (best-effort).
   const sizeBytes = await dirSize(p.installDir);
 
   return { binPath, commit, version, sizeBytes };

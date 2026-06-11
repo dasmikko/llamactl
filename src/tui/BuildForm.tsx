@@ -19,7 +19,6 @@ type FieldId =
   | "ref"
   | "backend"
   | "name"
-  | "keepSource"
   | "allowUnsupported"
   | "cudaHostCompiler";
 type TextFieldId = "repo" | "ref" | "name" | "cudaHostCompiler";
@@ -34,7 +33,6 @@ const FIELDS: FieldDef[] = [
   { id: "ref", label: "Ref" },
   { id: "backend", label: "Backend" },
   { id: "name", label: "Name" },
-  { id: "keepSource", label: "Keep source" },
   { id: "allowUnsupported", label: "Allow new gcc" },
   { id: "cudaHostCompiler", label: "CUDA host g++" },
 ];
@@ -51,7 +49,6 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
   const [cudaHostCompiler, setCudaHostCompiler] = useState("");
   // Default backend is cuda (index 1).
   const [backendIdx, setBackendIdx] = useState(1);
-  const [keepSource, setKeepSource] = useState(false);
   const [allowUnsupported, setAllowUnsupported] = useState(false);
   const [focus, setFocus] = useState(0);
 
@@ -71,7 +68,6 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
       ref: ref.trim() === "" ? undefined : ref.trim(),
       backend: BACKENDS[backendIdx]!,
       name: name.trim() === "" ? undefined : name.trim(),
-      keepSource,
       allowUnsupportedCompiler: allowUnsupported,
       cudaHostCompiler:
         cudaHostCompiler.trim() === "" ? undefined : cudaHostCompiler.trim(),
@@ -110,13 +106,6 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
         return;
       }
       return; // ignore other keys while on the chooser
-    }
-
-    if (field.id === "keepSource") {
-      if (key.leftArrow || key.rightArrow || input === " ") {
-        setKeepSource((v) => !v);
-      }
-      return;
     }
 
     if (field.id === "allowUnsupported") {
@@ -182,9 +171,6 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
               backendIdx > 0,
               backendIdx < BACKENDS.length - 1,
             );
-          }
-          if (f.id === "keepSource") {
-            return chooserRow(f, focused, keepSource ? "on" : "off", true, true);
           }
           if (f.id === "allowUnsupported") {
             return chooserRow(f, focused, allowUnsupported ? "on" : "off", true, true);

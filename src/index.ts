@@ -82,7 +82,6 @@ Options:
   --name <id>          Name for 'instance add' or 'install'
   --ref <git-ref>      Git ref to build for 'install' (branch/tag/commit)
   --backend <b>        Build backend for 'install': cuda or cpu (default cuda)
-  --keep-source        Keep the source checkout after an 'install' build
   --allow-unsupported-compiler  Pass -allow-unsupported-compiler to nvcc (too-new host gcc)
   --cuda-host-compiler <p>  Host C++ compiler for CUDA, e.g. g++-15 (-DCMAKE_CUDA_HOST_COMPILER)
   --control-port <n>   Control-plane base port (default 48134)

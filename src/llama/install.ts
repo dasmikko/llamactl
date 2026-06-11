@@ -104,7 +104,6 @@ export class InstallManager implements IInstallManager {
     const repo = req.repo && req.repo.trim().length > 0 ? req.repo.trim() : DEFAULT_LLAMA_REPO;
     const ref = req.ref && req.ref.length > 0 ? req.ref : "master";
     const backend: LlamaBackend = req.backend ?? "cuda";
-    const keepSource = req.keepSource ?? false;
     const allowUnsupportedCompiler = req.allowUnsupportedCompiler ?? false;
     const cudaHostCompiler =
       req.cudaHostCompiler && req.cudaHostCompiler.trim().length > 0
@@ -119,7 +118,6 @@ export class InstallManager implements IInstallManager {
       repo,
       ref,
       backend,
-      keepSource,
       allowUnsupportedCompiler,
       cudaHostCompiler,
       status: "queued",
@@ -254,7 +252,6 @@ export class InstallManager implements IInstallManager {
         repo: record.repo,
         ref: record.ref,
         backend: record.backend,
-        keepSource: record.keepSource,
         allowUnsupportedCompiler: record.allowUnsupportedCompiler,
         cudaHostCompiler: record.cudaHostCompiler,
         installDir,
@@ -275,7 +272,6 @@ export class InstallManager implements IInstallManager {
         backend: record.backend,
         binPath: result.binPath,
         version: result.version,
-        keepSource: record.keepSource,
         builtAt: Date.now(),
         sizeBytes: result.sizeBytes,
       };
@@ -288,12 +284,10 @@ export class InstallManager implements IInstallManager {
       record.installId = install.id;
       this.scheduleRemoval(record.id);
     } catch (e) {
-      // Clean up the partial install dir regardless of failure kind (the log
-      // file lives beside it, not inside, so it survives).
-      await rm(installDir, { recursive: true, force: true }).catch(() => {});
-
       if (e instanceof BuildCanceledError) {
+        // The user aborted: discard the partial checkout (and its log).
         record.status = "canceled";
+        await rm(installDir, { recursive: true, force: true }).catch(() => {});
         this.scheduleRemoval(record.id);
         return;
       }
@@ -301,7 +295,9 @@ export class InstallManager implements IInstallManager {
       record.error = e instanceof Error ? e.message : String(e);
       // Append the reason to the log so it's the last thing the user sees.
       onLine(`\n*** build failed: ${record.error}`);
-      // "error" jobs are kept so the failure stays visible (no scheduled removal).
+      // Keep the source + build tree on failure so the user can inspect why it
+      // failed and retry; "error" jobs stay visible and `install rm <id>` clears
+      // the dir when they're done.
     } finally {
       logStream?.end();
     }

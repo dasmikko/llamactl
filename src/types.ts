@@ -310,8 +310,6 @@ export interface LlamaInstall {
   binPath: string;
   /** Version reported by `llama-server --version`, or null. */
   version: string | null;
-  /** Whether the source checkout was kept (vs pruned after build to save space). */
-  keepSource: boolean;
   /** Epoch ms when the build finished. */
   builtAt: number;
   /** Size on disk in bytes of the install dir, or null if unmeasured. */
@@ -338,8 +336,6 @@ export interface BuildJob {
   repo: string;
   ref: string;
   backend: LlamaBackend;
-  /** Keep the source checkout instead of pruning it after the build. */
-  keepSource: boolean;
   /** Pass `-allow-unsupported-compiler` to nvcc (CUDA builds with a too-new host gcc). */
   allowUnsupportedCompiler: boolean;
   /** Host C++ compiler nvcc should use (`-DCMAKE_CUDA_HOST_COMPILER`), or null. */
@@ -507,8 +503,6 @@ export interface BuildRequest {
   backend?: LlamaBackend;
   /** Display name; defaults to a slug derived from repo+ref. */
   name?: string;
-  /** Keep the source checkout instead of pruning it after build. Default false. */
-  keepSource?: boolean;
   /**
    * Pass `-allow-unsupported-compiler` to nvcc (CUDA builds only). Default false.
    * Set this when nvcc aborts with "unsupported GNU version" because the host
