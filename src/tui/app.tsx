@@ -32,6 +32,7 @@ import { BuildForm } from "./BuildForm.tsx";
 import { TextPrompt } from "./TextPrompt.tsx";
 import { ModelInfo } from "./ModelInfo.tsx";
 import { ProfileDialog } from "./ProfileDialog.tsx";
+import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
 import { openInBrowser } from "./browser.ts";
 
 type Mode =
@@ -619,8 +620,8 @@ function App({ config }: AppProps): React.ReactElement {
             setMode("table");
           }}
         />
-      ) : mode === "table" || mode === "launch" || mode === "profiles" ? (
-        <StatusBar filter={filter} />
+      ) : mode === "table" ? (
+        <StatusBar filter={filter} current={current} />
       ) : null}
 
       {/* Launch picker / profile manager: a centered modal floating over the
@@ -800,6 +801,27 @@ function InstallsView({
     }
   });
 
+  // Context-aware footer: an install row exposes set-active/rename/update/remove;
+  // a build row exposes view-log and (while in flight) cancel/dismiss.
+  const shortcuts: Shortcut[] = [];
+  if (total > 0) shortcuts.push({ key: "j/k", desc: "move" });
+  if (selInstall) {
+    shortcuts.push({
+      key: "Enter",
+      desc: selInstall.id === activeId ? "use PATH binary" : "set active",
+    });
+    shortcuts.push({ key: "r", desc: "rename" });
+    shortcuts.push({ key: "u", desc: "update" });
+    shortcuts.push({ key: "d", desc: "remove" });
+  } else if (selBuild) {
+    shortcuts.push({ key: "Enter", desc: "view log" });
+    shortcuts.push({ key: "l", desc: "log" });
+    if (BUILD_IN_FLIGHT.has(selBuild.status)) shortcuts.push({ key: "c", desc: "cancel" });
+    shortcuts.push({ key: "d", desc: "dismiss" });
+  }
+  shortcuts.push({ key: "n", desc: "new" });
+  shortcuts.push({ key: "Esc", desc: "close" });
+
   return (
     <Installs
       installs={list}
@@ -808,6 +830,7 @@ function InstallsView({
       selectedIndex={selInstall ? selIdx : -1}
       selectedBuildIndex={selBuild ? selIdx - list.length : -1}
       width={width}
+      shortcuts={shortcuts}
     />
   );
 }
@@ -1025,15 +1048,48 @@ function ConfirmDialog({ action }: { action: NonNullable<PendingAction> }): Reac
 
 interface StatusBarProps {
   filter: string;
+  /** The selected row, so the bar lists only the shortcuts that currently apply. */
+  current: Row | undefined;
 }
 
-function StatusBar({ filter }: StatusBarProps): React.ReactElement {
-  const hint =
-     "Enter launch · e profiles · n new · Ctrl+S stop · f fav · o open · i info · l logs · D del · p pull · P downloads · I installs · B build · / filter · ? help · Ctrl+R restart · q quit";
+/**
+ * Context-aware footer: shows only the shortcuts usable for the current
+ * selection (a running row exposes stop/logs/open; an idle one launch/profiles/
+ * new), followed by the always-available global keys.
+ */
+function StatusBar({ filter, current }: StatusBarProps): React.ReactElement {
+  const items: Shortcut[] = [];
+  if (current) {
+    items.push({ key: "↑↓", desc: "move" });
+    if (current.running) {
+      items.push({ key: "Ctrl+S", desc: "stop" });
+      items.push({ key: "l", desc: "logs" });
+      items.push({ key: "o", desc: "open" });
+    } else {
+      items.push({ key: "Enter", desc: "launch" });
+      items.push({ key: "e", desc: "profiles" });
+      items.push({ key: "n", desc: "new" });
+    }
+    items.push({ key: "f", desc: current.isFavorite ? "unfav" : "fav" });
+    items.push({ key: "i", desc: "info" });
+    // Delete: a discovered model's file (D), or a standalone orphan profile (d).
+    if (current.model && !current.running) items.push({ key: "D", desc: "delete" });
+    else if (current.instance) items.push({ key: "d", desc: "delete" });
+  }
+  // Always available, regardless of selection.
+  items.push({ key: "p", desc: "pull" });
+  items.push({ key: "P", desc: "downloads" });
+  items.push({ key: "I", desc: "installs" });
+  items.push({ key: "/", desc: "filter" });
+  items.push({ key: "?", desc: "help" });
+  items.push({ key: "q", desc: "quit" });
+
+  // The filter badge sits first so it stays visible even if the shortcut list
+  // truncates on a narrow terminal.
   return (
     <Box>
-      <Text dimColor>{hint}</Text>
-      {filter ? <Text color="cyan">{`  [filter: ${filter}]`}</Text> : null}
+      {filter ? <Text color="cyan">{`[filter: ${filter}]  `}</Text> : null}
+      <ShortcutBar items={items} />
     </Box>
   );
 }

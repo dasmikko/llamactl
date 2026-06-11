@@ -8,6 +8,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { LlamaInstall, BuildJob, BuildStatus } from "../types.ts";
 import { humanBytes } from "./format.ts";
+import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
 
 export interface InstallsProps {
   installs: LlamaInstall[];
@@ -19,6 +20,8 @@ export interface InstallsProps {
   selectedBuildIndex: number;
   /** Terminal width, so the build-log tail can be truncated to fit. */
   width: number;
+  /** Context-aware footer shortcuts for the current selection. */
+  shortcuts: Shortcut[];
 }
 
 function buildStatusColor(status: BuildStatus): string | undefined {
@@ -55,6 +58,7 @@ function InstallsImpl({
   selectedIndex,
   selectedBuildIndex,
   width,
+  shortcuts,
 }: InstallsProps): React.ReactElement {
   // Reserve a margin so the truncated log tail never wraps the terminal.
   const tailWidth = Math.max(10, width - 6);
@@ -165,9 +169,7 @@ function InstallsImpl({
       ) : null}
 
       <Box marginTop={1}>
-        <Text dimColor>
-          j/k move · Enter set active / view log · l log · r rename · u update · c cancel · d remove · n new · Esc close
-        </Text>
+        <ShortcutBar items={shortcuts} />
       </Box>
     </Box>
   );
