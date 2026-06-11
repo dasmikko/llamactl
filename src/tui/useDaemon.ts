@@ -98,6 +98,8 @@ export interface UseDaemon {
   setActiveInstall(id: string | null): Promise<void>;
   /** Delete a managed install. */
   removeInstall(id: string): Promise<void>;
+  /** Rename a managed install (display name only). */
+  renameInstall(id: string, name: string): Promise<void>;
   /** Stop the running daemon and spawn a fresh one (e.g. to pick up new code). */
   restartDaemon(): Promise<void>;
   refreshNow(): Promise<void>;
@@ -427,6 +429,20 @@ export function useDaemon(config: Config): UseDaemon {
     [runMutation],
   );
 
+  const renameInstall = useCallback(
+    (id: string, name: string) =>
+      runMutation(async (conn) =>
+        setInstalls(
+          await conn.request<InstallsResponse>(
+            "PATCH",
+            `/installs/${encodeURIComponent(id)}`,
+            { name },
+          ),
+        ),
+      ),
+    [runMutation],
+  );
+
   return {
     models,
     instances,
@@ -456,6 +472,7 @@ export function useDaemon(config: Config): UseDaemon {
     cancelBuild,
     setActiveInstall,
     removeInstall,
+    renameInstall,
     restartDaemon,
     refreshNow,
   };

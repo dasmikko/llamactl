@@ -553,6 +553,9 @@ export async function cmdInstall(args: ParsedArgs, config: Config, mode: OutputM
       return cmdInstallRemove(args, config, mode);
     case "cancel":
       return cmdInstallCancel(args, config, mode);
+    case "rename":
+    case "name":
+      return cmdInstallRename(args, config, mode);
     case "log":
     case "logs":
       return cmdInstallLog(args, config, mode);
@@ -652,6 +655,30 @@ async function cmdInstallUse(args: ParsedArgs, config: Config, mode: OutputMode)
     return 0;
   }
   emitLine(`Active install set to "${id}".`);
+  return 0;
+}
+
+async function cmdInstallRename(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const id = args.positionals[2];
+  // The new name is the remaining positionals joined (so spaces don't need quotes),
+  // or --name.
+  const name = strOpt(args, "name") ?? args.positionals.slice(3).join(" ");
+  if (!id || name.trim() === "") {
+    throw new LlamactlError("bad_request", "usage: llamactl install rename <id> <new name>");
+  }
+
+  const conn = await connectDaemon({ config });
+  const res = await conn.request<InstallsResponse>(
+    "PATCH",
+    `/installs/${encodeURIComponent(id)}`,
+    { name: name.trim() },
+  );
+
+  if (mode.json) {
+    emitJson(res);
+    return 0;
+  }
+  emitLine(`Renamed install "${id}" to "${name.trim()}".`);
   return 0;
 }
 

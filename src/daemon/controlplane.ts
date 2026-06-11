@@ -8,6 +8,7 @@
 import type {
   ActiveInstallRequest,
   BuildRequest,
+  InstallRenameRequest,
   Download,
   DownloadsResponse,
   FavoriteStore,
@@ -314,8 +315,19 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
           return json(installsResponse(opts.installs));
         }
 
-        // DELETE /installs/:id — remove a managed install.
+        // PATCH /installs/:id — rename a managed install.
         const installMatch = /^\/installs\/(.+)$/.exec(path);
+        if (installMatch && req.method === "PATCH") {
+          const id = decodeURIComponent(installMatch[1]!);
+          const body = (await req.json()) as InstallRenameRequest;
+          if (!body || typeof body.name !== "string") {
+            throw new LlamactlError("bad_request", "field 'name' is required");
+          }
+          await opts.installs.rename(id, body.name);
+          return json(installsResponse(opts.installs));
+        }
+
+        // DELETE /installs/:id — remove a managed install.
         if (installMatch && req.method === "DELETE") {
           const id = decodeURIComponent(installMatch[1]!);
           await opts.installs.remove(id);

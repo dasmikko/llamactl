@@ -154,9 +154,10 @@ type InstallCalls = {
   canceled: string[];
   removed: string[];
   activated: (string | null)[];
+  renamed: { id: string; name: string }[];
 };
 function mockInstallManager(): IInstallManager & { calls: InstallCalls } {
-  const calls: InstallCalls = { started: [], canceled: [], removed: [], activated: [] };
+  const calls: InstallCalls = { started: [], canceled: [], removed: [], activated: [], renamed: [] };
   let activeId: string | null = null;
   return {
     calls,
@@ -213,6 +214,9 @@ function mockInstallManager(): IInstallManager & { calls: InstallCalls } {
     },
     cancel: (id) => {
       calls.canceled.push(id);
+    },
+    rename: async (id, name) => {
+      calls.renamed.push({ id, name });
     },
     setActive: async (id) => {
       calls.activated.push(id);
@@ -485,6 +489,25 @@ test("DELETE /installs/:id removes by id", async () => {
   });
   expect(res.status).toBe(200);
   expect(mockInstalls.calls.removed).toContain("build-0");
+});
+
+test("PATCH /installs/:id renames by id", async () => {
+  const res = await fetch(base() + "/installs/build-0", {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ name: "my-fork" }),
+  });
+  expect(res.status).toBe(200);
+  expect(mockInstalls.calls.renamed).toContainEqual({ id: "build-0", name: "my-fork" });
+});
+
+test("PATCH /installs/:id without a name => 400 bad_request", async () => {
+  const res = await fetch(base() + "/installs/build-0", {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  expect(res.status).toBe(400);
 });
 
 test("PUT /installs/active activates an id, then clears with null", async () => {

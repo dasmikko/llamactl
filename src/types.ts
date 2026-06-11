@@ -523,6 +523,12 @@ export interface ActiveInstallRequest {
   id: string | null;
 }
 
+/** PATCH /installs/:id request body — rename a managed install. */
+export interface InstallRenameRequest {
+  /** New display name (the install id is unchanged). */
+  name: string;
+}
+
 /** GET /health response (the one unauthenticated route). */
 export interface HealthResponse {
   ok: true;
@@ -620,6 +626,12 @@ export interface IInstallManager {
   start(req: BuildRequest): BuildJob;
   /** Cancel an in-flight build. Throws LlamactlError("install_not_found"). */
   cancel(id: string): void;
+  /**
+   * Rename a managed install (display name only; the id is unchanged). Throws
+   * LlamactlError("install_not_found") for an unknown id, or
+   * LlamactlError("bad_request") for an empty name.
+   */
+  rename(id: string, name: string): Promise<void>;
   /**
    * Set the active install (or null to fall back to PATH). Persists the choice.
    * Throws LlamactlError("install_not_found") for an unknown id.

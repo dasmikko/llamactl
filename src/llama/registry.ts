@@ -51,6 +51,14 @@ export class InstallRegistry {
     else this.installList.push(install);
   }
 
+  /** Rename an install by id; returns true if one was found. Does not persist. */
+  rename(id: string, name: string): boolean {
+    const install = this.installList.find((i) => i.id === id);
+    if (!install) return false;
+    install.name = name;
+    return true;
+  }
+
   /** Remove an install by id; returns true if one was removed. Does not persist. */
   remove(id: string): boolean {
     const idx = this.installList.findIndex((i) => i.id === id);

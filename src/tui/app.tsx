@@ -29,6 +29,7 @@ import { HfBrowser } from "./HfBrowser.tsx";
 import { Downloads } from "./Downloads.tsx";
 import { Installs } from "./Installs.tsx";
 import { BuildForm } from "./BuildForm.tsx";
+import { TextPrompt } from "./TextPrompt.tsx";
 import { ModelInfo } from "./ModelInfo.tsx";
 import { openInBrowser } from "./browser.ts";
 
@@ -43,7 +44,8 @@ type Mode =
   | "installs"
   | "build"
   | "buildlog"
-  | "downloads";
+  | "downloads"
+  | "renameinstall";
 
 /** Editor invocation context: are we creating a fresh profile or editing one? */
 interface EditorState {
@@ -123,6 +125,7 @@ function App({ config }: AppProps): React.ReactElement {
     cancelBuild,
     setActiveInstall,
     removeInstall,
+    renameInstall,
     restartDaemon,
   } = daemon;
 
@@ -135,6 +138,8 @@ function App({ config }: AppProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState | null>(null);
   // The build log currently open in the buildlog view (path + title), or null.
   const [buildLog, setBuildLog] = useState<{ logPath: string; title: string } | null>(null);
+  // The install being renamed (id + current name), or null.
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null);
   // A pending destructive action awaiting confirmation (repeat the key or `y`).
   const [pending, setPending] = useState<PendingAction>(null);
   // A periodic "now" so uptime ticks even between data changes.
@@ -512,6 +517,16 @@ function App({ config }: AppProps): React.ReactElement {
             title={buildLog.title}
             onClose={() => setMode("installs")}
           />
+        ) : mode === "renameinstall" && renameTarget ? (
+          <TextPrompt
+            title={`Rename install "${renameTarget.id}"`}
+            initialValue={renameTarget.name}
+            onSubmit={(name) => {
+              void renameInstall(renameTarget.id, name);
+              setMode("installs");
+            }}
+            onCancel={() => setMode("installs")}
+          />
         ) : mode === "installs" ? (
           <InstallsView
             installs={installs}
@@ -522,6 +537,10 @@ function App({ config }: AppProps): React.ReactElement {
             onViewLog={(logPath, title) => {
               setBuildLog({ logPath, title });
               setMode("buildlog");
+            }}
+            onRename={(id, name) => {
+              setRenameTarget({ id, name });
+              setMode("renameinstall");
             }}
             onBuild={() => setMode("build")}
             onClose={() => setMode("table")}
@@ -668,6 +687,7 @@ function InstallsView({
   onCancelBuild,
   onRemove,
   onViewLog,
+  onRename,
   onBuild,
   onClose,
 }: {
@@ -677,6 +697,7 @@ function InstallsView({
   onCancelBuild: (id: string) => void;
   onRemove: (id: string) => void;
   onViewLog: (logPath: string, title: string) => void;
+  onRename: (id: string, name: string) => void;
   onBuild: () => void;
   onClose: () => void;
 }): React.ReactElement {
@@ -718,6 +739,10 @@ function InstallsView({
     }
     if ((input === "l" || input === "L") && selBuild) {
       onViewLog(selBuild.logPath, selBuild.name);
+      return;
+    }
+    if (input === "r" && selInstall) {
+      onRename(selInstall.id, selInstall.name);
       return;
     }
     if (input === "d") {

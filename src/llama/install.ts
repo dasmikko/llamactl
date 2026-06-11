@@ -153,6 +153,20 @@ export class InstallManager implements IInstallManager {
     }
   }
 
+  async rename(id: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) {
+      throw new LlamactlError("bad_request", "install name must not be empty");
+    }
+    if (!this.registry.rename(id, trimmed)) {
+      throw new LlamactlError("install_not_found", `no install with id "${id}"`, { detail: { id } });
+    }
+    // Keep a lingering build record's label in sync, if present.
+    const entry = this.entries.get(id);
+    if (entry) entry.record.name = trimmed;
+    await this.registry.save();
+  }
+
   async setActive(id: string | null): Promise<void> {
     if (id !== null && !this.registry.get(id)) {
       throw new LlamactlError("install_not_found", `no install with id "${id}"`, { detail: { id } });

@@ -51,7 +51,7 @@ Commands:
   pull <repo>[:quant]  Download a model from Hugging Face
   downloads [cancel <id>]   List or cancel downloads
   install [<repo>]     Build & install llama.cpp from source (no repo ⇒ upstream llama.cpp)
-  install list|use <id>|rm <id>|cancel <id>|log <id>   Manage managed installs (rm also clears failed builds)
+  install list|use <id>|rm <id>|cancel <id>|log <id>|rename <id> <name>   Manage managed installs (rm also clears failed builds)
   daemon start|stop    Start or stop the background supervisor
   init                 Interactive setup wizard          (planned)
   recommend            Suggest a model for your hardware  (planned)

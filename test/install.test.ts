@@ -291,6 +291,31 @@ describe("InstallManager", () => {
     await expect(mgr.remove("nope")).rejects.toThrow();
   });
 
+  test("rename changes the display name and persists across reload", async () => {
+    const mgr = await load();
+    const a = mgr.start({ repo: "r", ref: "master", name: "alpha" });
+    await waitTerminal(mgr, a.id);
+
+    await mgr.rename(a.id, "my fork build");
+    expect(mgr.installs()[0]!.name).toBe("my fork build");
+
+    // Persisted: a fresh manager on the same registry sees the new name.
+    const reloaded = await InstallManager.load({
+      installsDir,
+      registryPath,
+      initialActiveId: null,
+    });
+    expect(reloaded.installs().find((i) => i.id === a.id)?.name).toBe("my fork build");
+  });
+
+  test("rename rejects an empty name and an unknown id", async () => {
+    const mgr = await load();
+    const a = mgr.start({ repo: "r", ref: "master" });
+    await waitTerminal(mgr, a.id);
+    await expect(mgr.rename(a.id, "   ")).rejects.toThrow();
+    await expect(mgr.rename("nope", "x")).rejects.toThrow();
+  });
+
   test("setActive(null) clears the active install", async () => {
     const mgr = await load();
     const a = mgr.start({ repo: "r", ref: "master" });
