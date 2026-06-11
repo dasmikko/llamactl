@@ -19,10 +19,6 @@ export interface ProfileDialogProps {
   variant: "launch" | "manage";
   /** The model row whose profiles are being chosen/managed. */
   row: Row;
-  defaultCtx: number;
-  defaultGpuLayers: number;
-  /** Launch with config defaults (no saved profile). */
-  onLaunchDefault: () => void;
   /** Launch the given saved profile. */
   onLaunchProfile: (p: InstanceConfig) => void;
   /** Create a new profile (the editor decides whether to launch after). */
@@ -34,10 +30,7 @@ export interface ProfileDialogProps {
   onClose: () => void;
 }
 
-type Entry =
-  | { kind: "default" }
-  | { kind: "profile"; profile: InstanceConfig }
-  | { kind: "new" };
+type Entry = { kind: "profile"; profile: InstanceConfig } | { kind: "new" };
 
 const ACCENT = "#5f87ff"; // matches the catalog repo-header blue
 const MUTED = "#9aa3b2";
@@ -55,9 +48,6 @@ function summarizeSpec(spec: LaunchSpec): string {
 export function ProfileDialog({
   variant,
   row,
-  defaultCtx,
-  defaultGpuLayers,
-  onLaunchDefault,
   onLaunchProfile,
   onNew,
   onEdit,
@@ -66,7 +56,6 @@ export function ProfileDialog({
 }: ProfileDialogProps): React.ReactElement {
   const profiles = row.profiles;
   const entries: Entry[] = [
-    ...(variant === "launch" ? [{ kind: "default" } as Entry] : []),
     ...profiles.map((p) => ({ kind: "profile", profile: p }) as Entry),
     { kind: "new" } as Entry,
   ];
@@ -81,8 +70,7 @@ export function ProfileDialog({
   }, [entries.length, sel]);
 
   const activate = (e: Entry): void => {
-    if (e.kind === "default") onLaunchDefault();
-    else if (e.kind === "new") onNew();
+    if (e.kind === "new") onNew();
     else if (variant === "launch") onLaunchProfile(e.profile);
     else onEdit(e.profile);
   };
@@ -146,18 +134,8 @@ export function ProfileDialog({
       <Box flexDirection="column" marginTop={1}>
         {entries.map((e, i) => {
           const selected = i === sel;
-          const label =
-            e.kind === "default"
-              ? "Default"
-              : e.kind === "new"
-                ? "+ New profile…"
-                : e.profile.name;
-          const hint =
-            e.kind === "default"
-              ? `ctx ${defaultCtx} · ngl ${defaultGpuLayers}`
-              : e.kind === "profile"
-                ? summarizeSpec(e.profile.spec)
-                : "";
+          const label = e.kind === "new" ? "+ New profile…" : e.profile.name;
+          const hint = e.kind === "profile" ? summarizeSpec(e.profile.spec) : "";
           const arming = e.kind === "profile" && armedDelete === e.profile.id;
           const text = `${selected ? "›" : " "} ${label}`;
           return (

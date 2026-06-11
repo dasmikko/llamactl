@@ -637,14 +637,6 @@ function App({ config }: AppProps): React.ReactElement {
           <ProfileDialog
             variant={mode === "launch" ? "launch" : "manage"}
             row={current}
-            defaultCtx={config.defaultCtx}
-            defaultGpuLayers={config.defaultGpuLayers}
-            onLaunchDefault={() => {
-              void start({
-                model: current.instance?.spec.model ?? current.model?.id ?? current.modelId,
-              });
-              setMode("table");
-            }}
             onLaunchProfile={(p) => {
               void start({ instance: p.id });
               setMode("table");
