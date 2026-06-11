@@ -920,7 +920,6 @@ interface Seg {
   text: string;
   color?: string;
   bold?: boolean;
-  dim?: boolean;
 }
 
 const segLen = (segs: Seg[]): number => segs.reduce((n, s) => n + s.text.length, 0);
@@ -986,7 +985,7 @@ function ConfirmDialog({ action }: { action: NonNullable<PendingAction> }): Reac
       <Text backgroundColor={BG} color={BORDER}>│</Text>
       {pad(PAD)}
       {segs.map((s, i) => (
-        <Text key={i} backgroundColor={BG} color={s.color} bold={s.bold} dimColor={s.dim}>
+        <Text key={i} backgroundColor={BG} color={s.color} bold={s.bold}>
           {s.text}
         </Text>
       ))}
