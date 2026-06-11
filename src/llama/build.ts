@@ -19,6 +19,17 @@ import { LlamactlError } from "../errors.ts";
 /** Default git repo built when a build request omits one (upstream llama.cpp). */
 export const DEFAULT_LLAMA_REPO = "https://github.com/ggml-org/llama.cpp";
 
+/**
+ * Recognize a GitHub pull-request ref and normalize it to `pull/<N>/head`.
+ * Accepts `pull/123/head`, `pr/123`, or `#123`; returns null for ordinary refs.
+ */
+export function parsePullRef(ref: string): string | null {
+  const r = ref.trim();
+  if (/^pull\/\d+\/head$/.test(r)) return r;
+  const m = /^pr\/(\d+)$/i.exec(r) ?? /^#(\d+)$/.exec(r);
+  return m ? `pull/${m[1]}/head` : null;
+}
+
 /** Thrown when a build is aborted via its signal; mapped to status "canceled". */
 export class BuildCanceledError extends Error {
   constructor() {
@@ -255,30 +266,56 @@ export async function runBuild(p: BuildParams): Promise<BuildResult> {
 
   // 2. Clone.
   p.onStatus("cloning");
-  const shallow = await runStep(p, [
-    "git",
-    "clone",
-    "--depth",
-    "1",
-    "--branch",
-    p.ref,
-    p.repo,
-    src,
-  ]);
-  if (shallow.code !== 0) {
-    // Ref may be a commit sha (not a branch/tag): full clone then checkout.
-    await rm(src, { recursive: true, force: true });
-    const full = await runStep(p, ["git", "clone", p.repo, src]);
-    if (full.code !== 0) {
-      throw new LlamactlError("build_failed", `clone failed (exit ${full.code})`, {
-        detail: { step: "clone", code: full.code },
+  const pullRef = parsePullRef(p.ref);
+  if (pullRef) {
+    // GitHub PR: the head lives at refs/pull/<N>/head, which isn't a branch and
+    // can't be `clone --branch`ed. Shallow-clone the default branch, then fetch
+    // and check out the PR head.
+    p.onLine(`[llamactl] building from PR ref ${pullRef}`);
+    const clone = await runStep(p, ["git", "clone", "--depth", "1", p.repo, src]);
+    if (clone.code !== 0) {
+      throw new LlamactlError("build_failed", `clone failed (exit ${clone.code})`, {
+        detail: { step: "clone", code: clone.code },
       });
     }
-    const checkout = await runStep(p, ["git", "-C", src, "checkout", p.ref]);
+    const fetch = await runStep(p, ["git", "-C", src, "fetch", "--depth", "1", "origin", pullRef]);
+    if (fetch.code !== 0) {
+      throw new LlamactlError("build_failed", `fetching ${pullRef} failed (exit ${fetch.code})`, {
+        detail: { step: "fetch", code: fetch.code, ref: pullRef },
+      });
+    }
+    const checkout = await runStep(p, ["git", "-C", src, "checkout", "FETCH_HEAD"]);
     if (checkout.code !== 0) {
       throw new LlamactlError("build_failed", `checkout failed (exit ${checkout.code})`, {
         detail: { step: "checkout", code: checkout.code },
       });
+    }
+  } else {
+    const shallow = await runStep(p, [
+      "git",
+      "clone",
+      "--depth",
+      "1",
+      "--branch",
+      p.ref,
+      p.repo,
+      src,
+    ]);
+    if (shallow.code !== 0) {
+      // Ref may be a commit sha (not a branch/tag): full clone then checkout.
+      await rm(src, { recursive: true, force: true });
+      const full = await runStep(p, ["git", "clone", p.repo, src]);
+      if (full.code !== 0) {
+        throw new LlamactlError("build_failed", `clone failed (exit ${full.code})`, {
+          detail: { step: "clone", code: full.code },
+        });
+      }
+      const checkout = await runStep(p, ["git", "-C", src, "checkout", p.ref]);
+      if (checkout.code !== 0) {
+        throw new LlamactlError("build_failed", `checkout failed (exit ${checkout.code})`, {
+          detail: { step: "checkout", code: checkout.code },
+        });
+      }
     }
   }
 

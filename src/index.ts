@@ -80,7 +80,7 @@ Options:
   --port <n>           Pin the instance port (default: auto)
   --extra-args "<a b>" Extra llama-server args, space-separated
   --name <id>          Name for 'instance add' or 'install'
-  --ref <git-ref>      Git ref to build for 'install' (branch/tag/commit)
+  --ref <git-ref>      Git ref to build for 'install' (branch/tag/commit, or a PR: pr/123 | pull/123/head)
   --backend <b>        Build backend for 'install': cuda or cpu (default cuda)
   --allow-unsupported-compiler  Pass -allow-unsupported-compiler to nvcc (too-new host gcc)
   --cuda-host-compiler <p>  Host C++ compiler for CUDA, e.g. g++-15 (-DCMAKE_CUDA_HOST_COMPILER)

@@ -182,7 +182,7 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
             id === "repo"
               ? REPO_PLACEHOLDER
               : id === "ref"
-                ? "default branch"
+                ? "default branch (or pr/123)"
                 : id === "cudaHostCompiler"
                   ? "default (e.g. g++-15)"
                   : "auto";

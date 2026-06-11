@@ -202,6 +202,16 @@ describe("InstallManager", () => {
     expect(configure!).not.toContain("allow-unsupported-compiler");
   });
 
+  test("a PR ref fetches refs/pull/<N>/head and checks out FETCH_HEAD", async () => {
+    const mgr = await load();
+    const job = mgr.start({ repo: "r", ref: "pr/24423" });
+    await waitTerminal(mgr, job.id);
+    // Plain clone (no --branch), then fetch the PR head, then checkout FETCH_HEAD.
+    expect(ctl.commands.some((c) => c.includes("fetch") && c.includes("origin pull/24423/head"))).toBe(true);
+    expect(ctl.commands.some((c) => c.includes("checkout FETCH_HEAD"))).toBe(true);
+    expect(ctl.commands.some((c) => c.includes("clone") && c.includes("--branch"))).toBe(false);
+  });
+
   test("empty repo defaults to upstream llama.cpp", async () => {
     const mgr = await load();
     const job = mgr.start({ repo: "" });
