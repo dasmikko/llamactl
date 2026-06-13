@@ -4,9 +4,10 @@
  * back to the table and Enter confirms; both delegate via callbacks.
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { ShortcutBar } from "./ShortcutBar.tsx";
+import { editText, CursorText } from "./textinput.tsx";
 
 export interface FilterProps {
   value: string;
@@ -15,6 +16,8 @@ export interface FilterProps {
   onSubmit: () => void;
   /** Cancel: clear the filter and return to table mode. */
   onCancel: () => void;
+  /** Terminal width, used to bound the input so it scrolls, not wraps. */
+  columns: number;
 }
 
 export function Filter({
@@ -22,7 +25,12 @@ export function Filter({
   onChange,
   onSubmit,
   onCancel,
+  columns,
 }: FilterProps): React.ReactElement {
+  // The parent owns `value`; the cursor is a view concern tracked locally. The
+  // component remounts each time filter mode opens, so it starts at end-of-text.
+  const [cursor, setCursor] = useState(value.length);
+
   useInput((input, key) => {
     if (key.escape) {
       onCancel();
@@ -32,22 +40,20 @@ export function Filter({
       onSubmit();
       return;
     }
-    if (key.backspace || key.delete) {
-      onChange(value.slice(0, -1));
-      return;
-    }
-    if (input && !key.ctrl && !key.meta) {
-      onChange(value + input);
+    const next = editText({ value, cursor }, input, key);
+    if (next) {
+      onChange(next.value);
+      setCursor(next.cursor);
     }
   });
 
   return (
     <Box>
       <Text color="cyan">/ </Text>
-      <Text>
-        {value}
-        <Text inverse> </Text>
-      </Text>
+      {/* Bound the value so it scrolls instead of wrapping and shoving the
+          shortcut bar (which truncates) onto a second line. Reserve ~30 cols for
+          the "/ " prefix, the gap, and the shortcut bar. */}
+      <CursorText value={value} cursor={cursor} focused width={Math.max(8, columns - 30)} />
       <Text>{"  "}</Text>
       <ShortcutBar
         items={[

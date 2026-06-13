@@ -9,10 +9,13 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { BuildRequest, LlamaBackend } from "../types.ts";
 import { ShortcutBar } from "./ShortcutBar.tsx";
+import { editText, CursorText } from "./textinput.tsx";
 
 export interface BuildFormProps {
   onSubmit: (req: BuildRequest) => void;
   onCancel: () => void;
+  /** Terminal width, used to bound each value field so it scrolls, not wraps. */
+  columns: number;
 }
 
 type FieldId =
@@ -40,10 +43,18 @@ const FIELDS: FieldDef[] = [
 
 const BACKENDS: readonly LlamaBackend[] = ["cpu", "cuda"];
 
+function isTextField(id: FieldId): id is TextFieldId {
+  return id === "repo" || id === "ref" || id === "name" || id === "cudaHostCompiler";
+}
+
 /** Default git repo offered as the placeholder hint for the Repo URL field. */
 const REPO_PLACEHOLDER = "https://github.com/ggml-org/llama.cpp";
 
-export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactElement {
+export function BuildForm({ onSubmit, onCancel, columns }: BuildFormProps): React.ReactElement {
+  // Columns left for a value: terminal width less the round border + paddingX
+  // (4) and the 18-wide label column; -1 keeps the scroll window under the real
+  // space so it can't wrap.
+  const valueWidth = Math.max(8, columns - 4 - 18 - 1);
   const [repo, setRepo] = useState("");
   const [ref, setRef] = useState("");
   const [name, setName] = useState("");
@@ -52,6 +63,8 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
   const [backendIdx, setBackendIdx] = useState(1);
   const [allowUnsupported, setAllowUnsupported] = useState(false);
   const [focus, setFocus] = useState(0);
+  // Cursor within the focused text field; reset to end-of-text when navigating.
+  const [cursor, setCursor] = useState(0);
 
   const text: Record<TextFieldId, string> = { repo, ref, name, cudaHostCompiler };
   const setText: Record<TextFieldId, (fn: (s: string) => string) => void> = {
@@ -59,6 +72,13 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
     ref: setRef,
     name: setName,
     cudaHostCompiler: setCudaHostCompiler,
+  };
+
+  /** On field change, put the cursor at the end of the newly-focused text field. */
+  const focusField = (idx: number): void => {
+    setFocus(idx);
+    const f = FIELDS[idx];
+    if (f && isTextField(f.id)) setCursor(text[f.id].length);
   };
 
   const submit = (): void => {
@@ -89,11 +109,11 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
       return;
     }
     if (key.tab || key.downArrow) {
-      setFocus((f) => (f + 1) % FIELDS.length);
+      focusField((focus + 1) % FIELDS.length);
       return;
     }
     if (key.upArrow) {
-      setFocus((f) => (f - 1 + FIELDS.length) % FIELDS.length);
+      focusField((focus - 1 + FIELDS.length) % FIELDS.length);
       return;
     }
 
@@ -117,12 +137,10 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
     }
 
     const id = field.id as TextFieldId;
-    if (key.backspace || key.delete) {
-      setText[id]((s) => s.slice(0, -1));
-      return;
-    }
-    if (input && !key.ctrl && !key.meta) {
-      setText[id]((s) => s + input);
+    const next = editText({ value: text[id], cursor }, input, key);
+    if (next) {
+      setText[id](() => next.value);
+      setCursor(next.cursor);
     }
   });
 
@@ -195,14 +213,13 @@ export function BuildForm({ onSubmit, onCancel }: BuildFormProps): React.ReactEl
                   {f.label}
                 </Text>
               </Box>
-              {value === "" && !focused ? (
-                <Text dimColor>{placeholder}</Text>
-              ) : (
-                <Text inverse={focused} wrap="truncate-start">
-                  {value}
-                  {focused ? "▏" : ""}
-                </Text>
-              )}
+              <CursorText
+                value={value}
+                cursor={cursor}
+                focused={focused}
+                placeholder={placeholder}
+                width={valueWidth}
+              />
             </Box>
           );
         })}

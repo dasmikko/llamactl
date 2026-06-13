@@ -12,6 +12,7 @@ import { CACHE_TYPES } from "../instances/spec.ts";
 import { estimateUsage } from "../instances/estimate.ts";
 import { humanBytes } from "./format.ts";
 import { windowSlice } from "./Table.tsx";
+import { editText, CursorText } from "./textinput.tsx";
 
 export interface FlagEditorResult {
   name: string | undefined;
@@ -339,6 +340,11 @@ export function FlagEditor({
     extraArgs: (initialSpec.extraArgs ?? []).join(" "),
   });
   const [focus, setFocus] = useState(0);
+  // Cursor within the focused plain-text field; reset to end-of-text on
+  // navigation. fields[0] is always "name" (or "model" when the name is hidden).
+  const [cursor, setCursor] = useState(() =>
+    fields[0]?.id === "name" ? initialName.length : initialSpec.model.length,
+  );
   // ctx field: an index into CTX_PRESETS, or CTX_CUSTOM to type a number.
   const [ctxOpt, setCtxOpt] = useState(() => initialCtxOpt(initialSpec.ctxSize));
   const [ctxCustom, setCtxCustom] = useState(() => numStr(initialSpec.ctxSize));
@@ -395,6 +401,15 @@ export function FlagEditor({
     onSubmit({ name, spec });
   };
 
+  /** On field change, put the cursor at the end of the newly-focused text field. */
+  const focusField = (idx: number): void => {
+    setFocus(idx);
+    const f = fields[idx];
+    if (f && !isEnumField(f.id) && f.id !== "ctxSize") {
+      setCursor(values[f.id as TextFieldId].length);
+    }
+  };
+
   useInput((input, key) => {
     const field = fields[focus];
     if (!field) return;
@@ -408,11 +423,11 @@ export function FlagEditor({
       return;
     }
     if (key.tab || key.downArrow) {
-      setFocus((f) => (f + 1) % fields.length);
+      focusField((focus + 1) % fields.length);
       return;
     }
     if (key.upArrow) {
-      setFocus((f) => (f - 1 + fields.length) % fields.length);
+      focusField((focus - 1 + fields.length) % fields.length);
       return;
     }
 
@@ -460,16 +475,16 @@ export function FlagEditor({
       return; // ignore other keys while on a chooser
     }
 
+    // Plain text field: cursor movement + editing. Numeric fields reject
+    // anything but digits so they can't hold an un-parseable value.
     const key2 = field.id as TextFieldId;
-    if (key.backspace || key.delete) {
-      setValues((v) => ({ ...v, [key2]: v[key2].slice(0, -1) }));
-      return;
-    }
-    // Ignore other control inputs; append printable characters. Numeric fields
-    // reject anything but digits so they can't hold an un-parseable value.
-    if (input && !key.ctrl && !key.meta) {
-      if (NUMERIC_FIELDS.has(key2) && !/^[0-9]+$/.test(input)) return;
-      setValues((v) => ({ ...v, [key2]: v[key2] + input }));
+    const accept = NUMERIC_FIELDS.has(key2)
+      ? (text: string) => /^[0-9]+$/.test(text)
+      : undefined;
+    const next = editText({ value: values[key2], cursor }, input, key, accept);
+    if (next) {
+      setValues((v) => ({ ...v, [key2]: next.value }));
+      setCursor(next.cursor);
     }
   });
 
@@ -517,6 +532,15 @@ export function FlagEditor({
   const showInfo = (availableWidth ?? 0) >= 56;
   const infoWidth = Math.max(24, Math.min(46, Math.floor((availableWidth ?? 80) * 0.42)));
 
+  // Columns left for a field's value: the modal inner width (less the round
+  // border + paddingX = 4), minus the side panel when shown (its marginLeft 2 +
+  // left border 1 + paddingLeft 2 + infoWidth), minus the 13-wide label column.
+  // The trailing -1 keeps the scroll window a hair under the real space so it
+  // can't spill and wrap. Lets long values horizontally scroll instead of
+  // truncating to "…" or wrapping the cursor onto the next line.
+  const formWidth = (availableWidth ?? 80) - 4 - (showInfo ? infoWidth + 5 : 0);
+  const valueWidth = Math.max(8, formWidth - 13 - 1);
+
   // Live memory estimate from the model's GGUF dims and the current flags.
   const estimate = model
     ? estimateUsage(
@@ -560,10 +584,12 @@ export function FlagEditor({
               </Text>
             </Box>
             {/* truncate-start keeps the tail (and cursor) of long paths visible. */}
-            <Text inverse={focused} wrap="truncate-start">
-              {values[f.id as TextFieldId]}
-              {focused ? "▏" : ""}
-            </Text>
+            <CursorText
+              value={values[f.id as TextFieldId]}
+              cursor={cursor}
+              focused={focused}
+              width={valueWidth}
+            />
           </Box>
         );
       })}

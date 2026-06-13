@@ -496,6 +496,7 @@ function App({ config }: AppProps): React.ReactElement {
           <InfoView row={current} now={now} onClose={() => setMode("table")} />
         ) : mode === "hf" ? (
           <HfBrowser
+            columns={columns}
             searchHf={searchHf}
             listHfFiles={listHfFiles}
             onPull={(repo, file) => void pull(repo, file)}
@@ -509,6 +510,7 @@ function App({ config }: AppProps): React.ReactElement {
           />
         ) : mode === "renameinstall" && renameTarget ? (
           <TextPrompt
+            columns={columns}
             title={`Rename install "${renameTarget.id}"`}
             initialValue={renameTarget.name}
             onSubmit={(name) => {
@@ -538,6 +540,7 @@ function App({ config }: AppProps): React.ReactElement {
           />
         ) : mode === "build" ? (
           <BuildForm
+            columns={columns}
             onSubmit={(req) => {
               void startBuild(req);
               setMode("installs");
@@ -612,6 +615,7 @@ function App({ config }: AppProps): React.ReactElement {
 
       {mode === "filter" ? (
         <Filter
+          columns={columns}
           value={filter}
           onChange={setFilter}
           onSubmit={() => setMode("table")}

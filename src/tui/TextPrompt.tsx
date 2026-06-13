@@ -7,6 +7,7 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { ShortcutBar } from "./ShortcutBar.tsx";
+import { editText, CursorText } from "./textinput.tsx";
 
 export interface TextPromptProps {
   title: string;
@@ -14,6 +15,8 @@ export interface TextPromptProps {
   /** Submit the (trimmed-non-empty) value. */
   onSubmit: (value: string) => void;
   onCancel: () => void;
+  /** Terminal width, used to bound the input so it scrolls, not wraps. */
+  columns: number;
 }
 
 export function TextPrompt({
@@ -21,8 +24,10 @@ export function TextPrompt({
   initialValue = "",
   onSubmit,
   onCancel,
+  columns,
 }: TextPromptProps): React.ReactElement {
   const [value, setValue] = useState(initialValue);
+  const [cursor, setCursor] = useState(initialValue.length);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -33,12 +38,10 @@ export function TextPrompt({
       if (value.trim() !== "") onSubmit(value.trim());
       return;
     }
-    if (key.backspace || key.delete) {
-      setValue((s) => s.slice(0, -1));
-      return;
-    }
-    if (input && !key.ctrl && !key.meta) {
-      setValue((s) => s + input);
+    const next = editText({ value, cursor }, input, key);
+    if (next) {
+      setValue(next.value);
+      setCursor(next.cursor);
     }
   });
 
@@ -48,9 +51,12 @@ export function TextPrompt({
         {title}
       </Text>
       <Box marginTop={1}>
-        <Text inverse wrap="truncate-start">
-          {value || " "}
-        </Text>
+        <CursorText
+          value={value}
+          cursor={cursor}
+          focused
+          width={Math.max(8, columns - 4 - 1)}
+        />
       </Box>
       <Box marginTop={1}>
         <ShortcutBar

@@ -10,6 +10,7 @@ import { Box, Text, useInput } from "ink";
 import type { HfRepo, HfFile } from "../types.ts";
 import { humanBytes } from "./format.ts";
 import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
+import { editText, CursorText } from "./textinput.tsx";
 
 type Stage = "search" | "results" | "files";
 
@@ -29,6 +30,8 @@ export interface HfBrowserProps {
   listHfFiles: (repo: string) => Promise<HfFile[]>;
   onPull: (repo: string, file: string) => void;
   onClose: () => void;
+  /** Terminal width, used to bound the search input so it scrolls, not wraps. */
+  columns: number;
 }
 
 export function HfBrowser({
@@ -36,9 +39,11 @@ export function HfBrowser({
   listHfFiles,
   onPull,
   onClose,
+  columns,
 }: HfBrowserProps): React.ReactElement {
   const [stage, setStage] = useState<Stage>("search");
   const [query, setQuery] = useState("");
+  const [queryCursor, setQueryCursor] = useState(0);
   const [repos, setRepos] = useState<HfRepo[]>([]);
   const [repoIdx, setRepoIdx] = useState(0);
   const [repo, setRepo] = useState("");
@@ -94,11 +99,11 @@ export function HfBrowser({
         void runSearch();
         return;
       }
-      if (key.backspace || key.delete) {
-        setQuery((q) => q.slice(0, -1));
-        return;
+      const next = editText({ value: query, cursor: queryCursor }, input, key);
+      if (next) {
+        setQuery(next.value);
+        setQueryCursor(next.cursor);
       }
-      if (input && !key.ctrl && !key.meta) setQuery((q) => q + input);
       return;
     }
 
@@ -140,10 +145,19 @@ export function HfBrowser({
       {busy ? <Text dimColor>working…</Text> : null}
 
       {stage === "search" ? (
-        <Box>
-          <Text>search: </Text>
-          <Text inverse>{query || " "}</Text>
-          <Text dimColor>  (Enter to search, Esc to close)</Text>
+        <Box flexDirection="column">
+          {/* Hint on its own line: keeping it off the input row leaves the value
+              the full width, so the cursor never gets pushed onto a new line. */}
+          <Box>
+            <Text>search: </Text>
+            <CursorText
+              value={query}
+              cursor={queryCursor}
+              focused
+              width={Math.max(8, columns - 4 - 8 - 1)}
+            />
+          </Box>
+          <Text dimColor>(Enter to search, Esc to close)</Text>
         </Box>
       ) : null}
 
