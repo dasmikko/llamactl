@@ -14,13 +14,21 @@ llamactl discovers the GGUF models you already have cached, lets you set and sav
 ![llamactl — resource gauges with temperatures, active instances, and the GGUF model catalog](screenshot.png)
 
 - **TUI** — a full-screen view with live CPU / RAM / GPU / VRAM gauges (and
-  temperatures), an **Active instances** list above a **Models** catalog, an
-  interactive flag editor, a log tail, and **Hugging Face search + download**.
-  Start/stop, edit, fetch, and inspect without leaving the terminal.
+  temperatures), an **Active instances** list, a **Favorites** shelf, and a
+  **Models** catalog, plus an interactive flag editor, a log tail, and
+  **Hugging Face search + download**. Start/stop, edit, fetch, and inspect
+  without leaving the terminal.
+- **Full flag editor** — curated fields for the common `llama-server` flags
+  (with presets, enum choosers, and a live VRAM/RAM estimate) **plus a searchable
+  "all flags" list generated from your binary's own `llama-server --help`**, so
+  every flag the installed build supports is editable and saved per profile.
+- **Managed llama.cpp builds** — build and install `llama-server` from source
+  (upstream or any repo/ref/PR, CPU or CUDA) and switch the active binary, all
+  from the TUI or CLI — no manual cloning or compiling.
 - **Daemon (supervisor)** — a long-running background process that owns the child
   `llama-server` processes, a loopback control plane, and the resource sampler.
 - **Headless CLI** — every action is also scriptable (`llamactl start`, `ps`,
-  `instance add`, …) with a `--json` contract for automation.
+  `instance add`, `install`, …) with a `--json` contract for automation.
 
 > **Loopback only.** The control plane binds to `127.0.0.1` and is guarded by a
 > bearer token rotated on every daemon start. Instances bind to `127.0.0.1` by
@@ -31,8 +39,9 @@ llamactl discovers the GGUF models you already have cached, lets you set and sav
 ## Requirements
 
 - [Bun](https://bun.sh) (developed against 1.3.x)
-- A `llama-server` binary on your `PATH`, or pointed to via `--llama-server` /
-  `LLAMACTL_LLAMA_SERVER`.
+- A `llama-server` binary — on your `PATH`, pointed to via `--llama-server` /
+  `LLAMACTL_LLAMA_SERVER`, or **built from source by llamactl itself**
+  (`llamactl install`, or `B` in the TUI). CUDA builds need the CUDA toolkit.
 - Optional: `nvidia-smi` for GPU util / VRAM / temperature (NVIDIA). Without it,
   llamactl still shows CPU and RAM and hides the GPU columns.
 - CPU temperature is read from Linux `sysfs` (`/sys/class/hwmon`, `/sys/class/thermal`)
@@ -61,24 +70,30 @@ restored on quit) and shows:
   gauges (+ GPU temp);
 - an **ACTIVE INSTANCES** list of running models with live runtime columns
   (status, port, pid, CPU%, RAM, VRAM, uptime);
-- a **MODELS** catalog of everything else, with columns read from GGUF metadata:
-  arch, kind (text/vision/embedding), quant, size, supported context, and whether
-  a saved profile exists.
+- a **★ FAVORITES** shelf of models you've starred (`f`), floated to the top;
+- a **MODELS** catalog of everything else — grouped by Hugging Face repo — with
+  columns read from GGUF metadata: arch, kind (text/vision/embedding), quant,
+  size, supported context, and whether a saved profile exists.
 
 A model moves between the two lists as you start/stop it, and the cursor follows it.
 
 | Key | Action |
 | --- | --- |
 | `j`/`k`, ↓/↑ | Move selection (`g`/`G` jump to top/bottom) |
-| `Enter` | Start the selected model / profile (or stop it if running) |
+| `Enter` | Open the launch picker (Default / a saved profile / + New) for the selected model |
+| `Ctrl+S` | Stop the selected running instance (confirm) |
 | `o` | Open a running instance's web UI in the browser |
 | `i` | Show full details about the selected model (path, arch, context, spec, live stats) |
-| `e` | Edit launch flags for the selected row |
+| `e` | Manage the model's profiles — switch / create / **edit flags** / delete |
 | `n` | Create a new saved instance profile |
+| `f` | Toggle favorite (★) for the selected row |
 | `d` | Delete the selected saved profile (confirm with `d`/`y`) |
 | `D` | Delete the model file(s) from disk (confirm with `D`/`y`; stop it first) |
 | `l` | Tail the running instance's log |
 | `p` | Pull a model from Hugging Face (search → browse → download) |
+| `P` | Manage downloads (cancel / retry / dismiss) |
+| `I` | Manage built llama.cpp installs (select active, log, update, remove) |
+| `B` | Build a llama.cpp install from source |
 | `/` | Filter the list |
 | `?` | Help |
 | `q` | Quit (the daemon and instances keep running) |
@@ -86,12 +101,24 @@ A model moves between the two lists as you start/stop it, and the cursor follows
 ### The flag editor
 
 `e`/`n` open a form over a `LaunchSpec`. `Tab`/`↑↓` move between fields, text
-fields type directly, and choosers use `←/→`:
+fields type directly (full cursor: `←/→`, `Ctrl+A`/`Ctrl+E`, edit anywhere), and
+choosers use `←/→`:
 
 - **Ctx size** scrolls common presets (2048 → … → 131072) then a **Custom** entry
   you type;
 - **Cache K/V** (KV-cache quant), **Flash attn** (auto/on/off), and **Reasoning**
   (auto/on/off) / **Jinja** (default/on/off) are cycled with `←/→`.
+- a side panel describes the focused flag, and a live **≈ VRAM / RAM estimate**
+  updates as you change context size, GPU layers, and cache types.
+
+Below the curated fields is an **all flags** section: every flag the active
+`llama-server` binary accepts, read from its own `llama-server --help`. Type in
+the **search** row to filter by name or description; value flags are text inputs
+(the `--help` placeholder is shown as a hint) and boolean flags are on/off
+switches (`←/→` or space). Anything you set here is saved with the profile and
+passed through verbatim — so as llama.cpp adds flags, they show up automatically.
+(The list is empty until a `llama-server` binary is available; the section then
+tells you why — e.g. no binary, or restart the daemon to pick up a new one.)
 
 `Enter` saves the profile, `Esc` cancels.
 
@@ -109,6 +136,8 @@ fields type directly, and choosers use `←/→`:
 | `llamactl search <query>` | Search Hugging Face for GGUF repos |
 | `llamactl pull <repo>[:quant]` | Download a model (e.g. `unsloth/Qwen3-0.6B-GGUF:Q4_K_M`) |
 | `llamactl downloads [cancel <id>]` | List or cancel downloads |
+| `llamactl install [<repo>]` | Build & install llama.cpp from source (no repo ⇒ upstream) |
+| `llamactl install ls\|use <id>\|update <id>\|rm <id>\|log <id>` | Manage built installs (set active, refetch+recompile, …) |
 | `llamactl daemon start\|stop` | Start/stop the background supervisor |
 
 Launch flags (for `start` and `instance add/edit`):
@@ -153,6 +182,29 @@ blob already in the cache is **not re-downloaded**. Sharded models pull all thei
 shards. **Gated/private repos** work when a token is available: set `hfToken` /
 `LLAMACTL_HF_TOKEN`, or just log in once with `huggingface-cli login` (llamactl
 reuses `~/.cache/huggingface/token`).
+
+## Managed llama.cpp builds
+
+Don't have a `llama-server` binary, or want a CUDA build without compiling by
+hand? llamactl can build and manage llama.cpp installs for you. In the TUI press
+`B` to open the build form (repo URL, git ref/branch/PR, CPU or CUDA backend),
+and `I` to manage what's built — set the **active** install (the binary the
+daemon spawns), tail a build log, refetch + recompile, or remove one. From the
+CLI:
+
+```sh
+llamactl install                                 # build upstream llama.cpp (CUDA by default)
+llamactl install --backend cpu                   # CPU-only build
+llamactl install <git-url> --ref pr/1234         # build a fork or a specific PR
+llamactl install ls                              # list installs and which is active
+llamactl install use <id>                        # make one active
+llamactl install update <id>                     # refetch its ref and recompile in place
+llamactl install log <id>                        # view the build log
+```
+
+The active managed install takes precedence as the spawned binary unless
+`llamaServerPath` is set explicitly. Switching the active install re-reads the
+new binary's flags for the editor's **all flags** section.
 
 ## Configuration
 
@@ -207,7 +259,8 @@ add. New downloads are picked up live without a restart.
   PID. The token is never logged.
 - The **control plane** (`127.0.0.1:48134`, scanning upward) requires the bearer
   token on every route except `GET /health`, compared in constant time. Routes:
-  `/models`, `/ps`, `/stats`, `/instances` (CRUD), `/start`, `/stop`, `/shutdown`.
+  `/models`, `/ps`, `/stats`, `/llama/flags`, `/instances` (CRUD), `/favorites`,
+  `/start`, `/stop`, `/hf/*`, `/pull`, `/downloads`, `/installs`, `/shutdown`.
 - The **resource sampler** runs in the daemon, sampling system CPU/RAM (+ CPU
   temp from `sysfs`) from `/proc` and GPU util / VRAM / temp from `nvidia-smi` on
   an interval, joining per-instance usage by PID. The TUI polls `/stats`.
