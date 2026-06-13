@@ -25,6 +25,7 @@ import type {
   InstancesResponse,
   ISupervisor,
   LaunchSpec,
+  LlamaFlagsResponse,
   Model,
   ModelsResponse,
   PsResponse,
@@ -199,6 +200,11 @@ export async function startControlPlane(opts: ControlPlaneOptions): Promise<Cont
             stats: opts.sampler.snapshot(),
             llamaServer: await opts.supervisor.serverInfo(),
           };
+          return json(body);
+        }
+
+        if (path === "/llama/flags" && req.method === "GET") {
+          const body: LlamaFlagsResponse = { spec: await opts.supervisor.serverFlags() };
           return json(body);
         }
 

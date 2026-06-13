@@ -109,6 +109,7 @@ function App({ config }: AppProps): React.ReactElement {
     running,
     stats,
     llamaServer,
+    llamaSpec,
     downloads,
     installs,
     error,
@@ -483,6 +484,7 @@ function App({ config }: AppProps): React.ReactElement {
             availableHeight={screenRows - headerLines}
             availableWidth={columns}
             model={editor.model}
+            flagsSpec={llamaSpec ?? undefined}
           />
         ) : mode === "logs" && current?.running ? (
           <LogViewer

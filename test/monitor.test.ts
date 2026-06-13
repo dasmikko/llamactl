@@ -230,6 +230,7 @@ describe("Sampler", () => {
       stop: async () => running[0]!,
       ensureReady: async () => running[0]!,
       serverInfo: async () => ({ path: "llama-server", found: true }),
+      serverFlags: async () => ({ version: null, flags: [] }),
       shutdownAll: async () => {},
     };
   }

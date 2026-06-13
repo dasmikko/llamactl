@@ -11,6 +11,41 @@ import { LlamactlError } from "../errors.ts";
 /** Default loopback host; non-loopback binding is an explicit opt-in. */
 export const DEFAULT_HOST = "127.0.0.1";
 
+/**
+ * Canonical long flags already represented by structured `LaunchSpec` fields.
+ * The TUI's generic "all flags" list hides these (they have richer dedicated
+ * editors), and `specToArgs` skips them in `extraFlags` so a stray entry can't
+ * duplicate a curated flag. `--help`/`--version`/`--usage` are listed too: they
+ * are meaningless as launch flags.
+ */
+export const CURATED_FLAGS: ReadonlySet<string> = new Set([
+  "--model",
+  "--ctx-size",
+  "--gpu-layers",
+  "--n-cpu-moe",
+  "--threads",
+  "--batch-size",
+  "--ubatch-size",
+  "--parallel",
+  "--alias",
+  "--mmproj",
+  "--mlock",
+  "--mmap",
+  "--no-mmap",
+  "--flash-attn",
+  "--reasoning",
+  "--jinja",
+  "--no-jinja",
+  "--chat-template",
+  "--cache-type-k",
+  "--cache-type-v",
+  "--host",
+  "--port",
+  "--help",
+  "--usage",
+  "--version",
+]);
+
 /** Allowed `--cache-type-k`/`--cache-type-v` values (llama.cpp). Default is f16. */
 export const CACHE_TYPES = [
   "f32",
@@ -69,6 +104,20 @@ export function validateSpec(spec: LaunchSpec): void {
   }
   if (spec.extraArgs && !spec.extraArgs.every((a) => typeof a === "string")) {
     throw new LlamactlError("invalid_spec", "extraArgs must be an array of strings");
+  }
+  if (spec.extraFlags) {
+    for (const [flag, value] of Object.entries(spec.extraFlags)) {
+      if (!flag.startsWith("-")) {
+        throw new LlamactlError("invalid_spec", `extraFlags key must be a flag like "--foo" (got "${flag}")`, {
+          detail: { field: "extraFlags", value: flag },
+        });
+      }
+      if (value !== true && typeof value !== "string") {
+        throw new LlamactlError("invalid_spec", `extraFlags["${flag}"] must be a string or true`, {
+          detail: { field: "extraFlags", value: flag },
+        });
+      }
+    }
   }
   const checkCacheType = (v: string | undefined, name: string): void => {
     if (v === undefined) return;
@@ -139,6 +188,16 @@ export function specToArgs(opts: {
   }
   if (spec.cacheTypeK !== undefined) args.push("--cache-type-k", spec.cacheTypeK);
   if (spec.cacheTypeV !== undefined) args.push("--cache-type-v", spec.cacheTypeV);
+  // Arbitrary flags from the editor's "all flags" list: a string is emitted as
+  // `<flag> <value>`, `true` as a bare switch. Curated flags are skipped so a
+  // stray entry can't duplicate one emitted above.
+  if (spec.extraFlags) {
+    for (const [flag, value] of Object.entries(spec.extraFlags)) {
+      if (CURATED_FLAGS.has(flag)) continue;
+      if (value === true) args.push(flag);
+      else if (value !== "") args.push(flag, value);
+    }
+  }
   if (spec.extraArgs) args.push(...spec.extraArgs);
   args.push(...configArgs);
 

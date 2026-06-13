@@ -13,6 +13,8 @@ import type {
   RunningModel,
   StatsSnapshot,
   LlamaServerInfo,
+  LlamaServerSpec,
+  LlamaFlagsResponse,
   LaunchSpec,
   StartRequest,
   ModelsResponse,
@@ -55,6 +57,8 @@ export interface UseDaemon {
   stats: StatsSnapshot | null;
   /** The llama-server binary the daemon will spawn (path / found / version). */
   llamaServer: LlamaServerInfo | null;
+  /** Flags the active llama-server binary accepts (parsed from --help); null until loaded. */
+  llamaSpec: LlamaServerSpec | null;
   downloads: Download[];
   /** Managed llama.cpp installs, in-flight/recent builds, and the active install id. */
   installs: InstallsResponse | null;
@@ -119,6 +123,7 @@ export function useDaemon(config: Config): UseDaemon {
   const [llamaServer, setLlamaServer] = useState<LlamaServerInfo | null>(null);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [installs, setInstalls] = useState<InstallsResponse | null>(null);
+  const [llamaSpec, setLlamaSpec] = useState<LlamaServerSpec | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(true);
@@ -137,6 +142,16 @@ export function useDaemon(config: Config): UseDaemon {
       setModels(m.models);
       setInstances(inst.instances);
       setFavorites(fav.favorites);
+      // Best-effort and isolated: the flag spec is parsed once per binary and
+      // re-fetched so switching the active install refreshes it, but an older
+      // daemon without this route (or a probe failure) must NOT break the core
+      // lists above. Leave llamaSpec untouched on failure.
+      try {
+        const flags = await conn.request<LlamaFlagsResponse>("GET", "/llama/flags");
+        if (mountedRef.current) setLlamaSpec(flags.spec);
+      } catch {
+        /* stale daemon / probe failure — the editor falls back to curated fields */
+      }
     } catch (e) {
       if (mountedRef.current) setError(errMessage(e));
     }
@@ -466,6 +481,7 @@ export function useDaemon(config: Config): UseDaemon {
     running,
     stats,
     llamaServer,
+    llamaSpec,
     downloads,
     installs,
     error,

@@ -149,6 +149,26 @@ describe("specToArgs", () => {
     expect(args).not.toContain("--flash-attn");
     expect(args.indexOf("--mlock")).toBeLessThan(args.indexOf("--foo"));
   });
+
+  test("extraFlags: string emits value, true emits a switch; curated keys skipped", () => {
+    const spec: LaunchSpec = {
+      model: "m",
+      extraFlags: {
+        "--rope-freq-base": "10000",
+        "--no-webui": true,
+        "--ctx-size": "999", // curated ⇒ must be ignored here
+        "--empty": "", // empty string ⇒ not emitted
+      },
+    };
+    const args = specToArgs({ modelPath: "/x.gguf", port: 1, spec, configArgs: ["--cfg"] });
+    expect(args[args.indexOf("--rope-freq-base") + 1]).toBe("10000");
+    expect(args).toContain("--no-webui");
+    expect(args).not.toContain("--empty");
+    // The curated --ctx-size from extraFlags is dropped (only one, from the field).
+    expect(args.filter((a) => a === "--ctx-size")).toHaveLength(0);
+    // extraFlags come before configArgs.
+    expect(args.indexOf("--rope-freq-base")).toBeLessThan(args.indexOf("--cfg"));
+  });
 });
 
 describe("validateSpec", () => {
@@ -178,5 +198,14 @@ describe("validateSpec", () => {
     expect(() => validateSpec({ model: "m", parallel: -2 })).toThrow();
     expect(() => validateSpec({ model: "m", mlock: "yes" as "on" })).toThrow();
     expect(() => validateSpec({ model: "m", ubatchSize: 256, parallel: 4, mlock: "on", mmap: "off" })).not.toThrow();
+  });
+  test("rejects malformed extraFlags, accepts valid ones", () => {
+    expect(() => validateSpec({ model: "m", extraFlags: { foo: "bar" } })).toThrow();
+    expect(() =>
+      validateSpec({ model: "m", extraFlags: { "--x": 1 as unknown as string } }),
+    ).toThrow();
+    expect(() =>
+      validateSpec({ model: "m", extraFlags: { "--rope-freq-base": "10000", "--no-webui": true } }),
+    ).not.toThrow();
   });
 });

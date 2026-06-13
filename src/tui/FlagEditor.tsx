@@ -7,8 +7,8 @@
 
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import type { LaunchSpec, Model } from "../types.ts";
-import { CACHE_TYPES } from "../instances/spec.ts";
+import type { LaunchSpec, LlamaFlag, LlamaServerSpec, Model } from "../types.ts";
+import { CACHE_TYPES, CURATED_FLAGS } from "../instances/spec.ts";
 import { estimateUsage } from "../instances/estimate.ts";
 import { humanBytes } from "./format.ts";
 import { windowSlice } from "./Table.tsx";
@@ -44,6 +44,13 @@ export interface FlagEditorProps {
   availableWidth?: number;
   /** The resolved model, when known, used for the live VRAM/RAM estimate. */
   model?: Model;
+  /**
+   * Flags the active llama-server binary accepts (parsed from --help). When
+   * present, every non-curated flag is offered in a searchable "all flags"
+   * section below the curated fields. Omit (or empty) to show only the curated
+   * fields — the editor degrades gracefully when the binary/help is unavailable.
+   */
+  flagsSpec?: LlamaServerSpec;
 }
 
 /**
@@ -309,6 +316,36 @@ function parseNum(s: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Width of the flag-name column in the generic "all flags" section. */
+const FLAG_LABEL_WIDTH = 24;
+
+/**
+ * A single focusable row, unifying the curated fields with the generic
+ * "all flags" list so one focus index + window walks the whole editor:
+ * - `field`  — a curated `FieldDef` (existing typed editors)
+ * - `search` — the filter box for the generic list
+ * - `flag`   — one non-curated llama-server flag (text value or on/off switch)
+ */
+type NavItem =
+  | { kind: "field"; field: FieldDef }
+  | { kind: "search" }
+  | { kind: "flag"; flag: LlamaFlag };
+
+/** Non-curated flags from the parsed spec, matching the search query. */
+function genericFlags(spec: LlamaServerSpec | undefined, query: string): LlamaFlag[] {
+  if (!spec) return [];
+  const q = query.trim().toLowerCase();
+  return spec.flags.filter((f) => {
+    if (CURATED_FLAGS.has(f.flag)) return false;
+    if (q === "") return true;
+    return (
+      f.flag.toLowerCase().includes(q) ||
+      (f.short?.toLowerCase().includes(q) ?? false) ||
+      f.help.toLowerCase().includes(q)
+    );
+  });
+}
+
 export function FlagEditor({
   title,
   initialName,
@@ -319,6 +356,7 @@ export function FlagEditor({
   availableHeight,
   availableWidth,
   model,
+  flagsSpec,
 }: FlagEditorProps): React.ReactElement {
   // Drop the Name row when editing a model's inline flags so it isn't in the
   // tab order; all field navigation below indexes into this list.
@@ -358,6 +396,29 @@ export function FlagEditor({
     mlock: enumIndex("mlock", initialSpec.mlock),
     mmap: enumIndex("mmap", initialSpec.mmap),
   }));
+  // Generic "all flags" section: a filter query and the edited values. Each value
+  // is a string; a boolean switch stores "on" (absent ⇒ off), a value flag stores
+  // its text. Seeded from any extraFlags already on the spec (true ⇒ "on").
+  const [flagSearch, setFlagSearch] = useState("");
+  const [extraFlags, setExtraFlags] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(initialSpec.extraFlags ?? {})) {
+      out[k] = v === true ? "on" : v;
+    }
+    return out;
+  });
+
+  // The focusable rows: curated fields, then the "all flags" search box and the
+  // filtered generic flag rows. The section is always present so it stays
+  // discoverable; when there are no flags the search row explains why (daemon not
+  // restarted / binary missing / unparseable). One `focus` index walks them all.
+  const generic = genericFlags(flagsSpec, flagSearch);
+  const genericTotal = genericFlags(flagsSpec, "").length;
+  const navItems: NavItem[] = [
+    ...fields.map((field) => ({ kind: "field", field }) as NavItem),
+    { kind: "search" } as NavItem,
+    ...generic.map((flag) => ({ kind: "flag", flag }) as NavItem),
+  ];
 
   /** The effective ctx size from the current option (preset or custom text). */
   const ctxValue = (): number | undefined =>
@@ -396,23 +457,51 @@ export function FlagEditor({
       host: values.host.trim() === "" ? undefined : values.host.trim(),
       port: parseNum(values.port),
       extraArgs: extra.length > 0 ? extra : undefined,
+      extraFlags: collectExtraFlags(),
     };
     const name = values.name.trim() === "" ? undefined : values.name.trim();
     onSubmit({ name, spec });
   };
 
-  /** On field change, put the cursor at the end of the newly-focused text field. */
+  /**
+   * Build the spec's `extraFlags` map from the generic section's edits: boolean
+   * switches set to "on" become `true`, value flags with non-empty text become
+   * that string. Entries from the original spec whose flag the current binary
+   * doesn't list are preserved verbatim, so editing on one binary never silently
+   * drops flags meaningful to another.
+   */
+  const collectExtraFlags = (): Record<string, string | true> | undefined => {
+    const known = new Map((flagsSpec?.flags ?? []).map((f) => [f.flag, f]));
+    const out: Record<string, string | true> = {};
+    for (const [flag, raw] of Object.entries(extraFlags)) {
+      if (CURATED_FLAGS.has(flag)) continue;
+      const def = known.get(flag);
+      const takesValue = def ? def.takesValue : raw !== "on"; // unknown ⇒ infer
+      if (!takesValue) {
+        if (raw === "on") out[flag] = true;
+      } else {
+        const t = raw.trim();
+        if (t !== "") out[flag] = t;
+      }
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  };
+
+  /** On focus change, put the cursor at the end of the newly-focused text field. */
   const focusField = (idx: number): void => {
     setFocus(idx);
-    const f = fields[idx];
-    if (f && !isEnumField(f.id) && f.id !== "ctxSize") {
-      setCursor(values[f.id as TextFieldId].length);
+    const it = navItems[idx];
+    if (!it) return;
+    if (it.kind === "search") setCursor(flagSearch.length);
+    else if (it.kind === "flag" && it.flag.takesValue) setCursor((extraFlags[it.flag.flag] ?? "").length);
+    else if (it.kind === "field" && !isEnumField(it.field.id) && it.field.id !== "ctxSize") {
+      setCursor(values[it.field.id as TextFieldId].length);
     }
   };
 
   useInput((input, key) => {
-    const field = fields[focus];
-    if (!field) return;
+    const item = navItems[focus];
+    if (!item) return;
 
     if (key.escape) {
       onCancel();
@@ -423,13 +512,41 @@ export function FlagEditor({
       return;
     }
     if (key.tab || key.downArrow) {
-      focusField((focus + 1) % fields.length);
+      focusField((focus + 1) % navItems.length);
       return;
     }
     if (key.upArrow) {
-      focusField((focus - 1 + fields.length) % fields.length);
+      focusField((focus - 1 + navItems.length) % navItems.length);
       return;
     }
+
+    // Generic "all flags" section.
+    if (item.kind === "search") {
+      const next = editText({ value: flagSearch, cursor }, input, key);
+      if (next) {
+        setFlagSearch(next.value);
+        setCursor(next.cursor);
+      }
+      return;
+    }
+    if (item.kind === "flag") {
+      const f = item.flag;
+      if (!f.takesValue) {
+        // Boolean switch: ←/→/space toggles between on and off (absent).
+        if (key.leftArrow || key.rightArrow || input === " ") {
+          setExtraFlags((m) => ({ ...m, [f.flag]: m[f.flag] === "on" ? "off" : "on" }));
+        }
+        return;
+      }
+      const next = editText({ value: extraFlags[f.flag] ?? "", cursor }, input, key);
+      if (next) {
+        setExtraFlags((m) => ({ ...m, [f.flag]: next.value }));
+        setCursor(next.cursor);
+      }
+      return;
+    }
+
+    const field = item.field;
 
     // Ctx size: ←/→ scroll through presets and into "Custom"; on Custom, type digits.
     if (field.id === "ctxSize") {
@@ -511,35 +628,36 @@ export function FlagEditor({
     </Box>
   );
 
-  // Window the field list when it won't all fit, keeping the focused field in
-  // view. Chrome inside the box is the border (2) + title (1) + the estimate
-  // block (marginTop + line = 2) + the hint line (1); reserve one more line for
-  // the scroll indicator.
+  // Window the row list when it won't all fit, keeping the focused row in view.
+  // Chrome inside the box is the border (2) + title (1) + the estimate block
+  // (marginTop + line = 2) + the hint line (1); reserve one more line for the
+  // scroll indicator.
   const capacity =
     availableHeight != null ? Math.max(1, availableHeight - 6) : undefined;
-  const scrolling = capacity != null && fields.length > capacity;
+  const scrolling = capacity != null && navItems.length > capacity;
   const { start, end } = scrolling
-    ? windowSlice(fields.length, focus, Math.max(1, capacity - 1))
-    : { start: 0, end: fields.length };
-  const visibleFields = fields.slice(start, end);
+    ? windowSlice(navItems.length, focus, Math.max(1, capacity - 1))
+    : { start: 0, end: navItems.length };
+  const visibleItems = navItems.slice(start, end);
   const hiddenAbove = start;
-  const hiddenBelow = fields.length - end;
+  const hiddenBelow = navItems.length - end;
 
-  // The side panel describes the highlighted field. Only show it when the
-  // terminal is wide enough to spare the columns; otherwise stay single-column.
-  const focusedField = fields[focus]!;
-  const info = INFO[focusedField.id];
   const showInfo = (availableWidth ?? 0) >= 56;
   const infoWidth = Math.max(24, Math.min(46, Math.floor((availableWidth ?? 80) * 0.42)));
 
-  // Columns left for a field's value: the modal inner width (less the round
-  // border + paddingX = 4), minus the side panel when shown (its marginLeft 2 +
-  // left border 1 + paddingLeft 2 + infoWidth), minus the 13-wide label column.
-  // The trailing -1 keeps the scroll window a hair under the real space so it
-  // can't spill and wrap. Lets long values horizontally scroll instead of
-  // truncating to "…" or wrapping the cursor onto the next line.
+  // Columns left for a value: the modal inner width (less the round border +
+  // paddingX = 4), minus the side panel when shown (its marginLeft 2 + left
+  // border 1 + paddingLeft 2 + infoWidth), minus the label column. The trailing
+  // -1 keeps the scroll window a hair under the real space so it can't spill and
+  // wrap — values horizontally scroll rather than truncate to "…".
   const formWidth = (availableWidth ?? 80) - 4 - (showInfo ? infoWidth + 5 : 0);
   const valueWidth = Math.max(8, formWidth - 13 - 1);
+  const flagValueWidth = Math.max(8, formWidth - FLAG_LABEL_WIDTH - 1);
+
+  // The side panel describes the focused row: a curated field's help, the flag
+  // filter, or a generic flag's --help text.
+  const focusedItem = navItems[focus];
+  const info = focusedItem?.kind === "field" ? INFO[focusedItem.field.id] : undefined;
 
   // Live memory estimate from the model's GGUF dims and the current flags.
   const estimate = model
@@ -555,41 +673,107 @@ export function FlagEditor({
       )
     : null;
 
+  /** Render one curated field row (ctx scroller, enum chooser, or text input). */
+  const renderField = (f: FieldDef, focused: boolean): React.ReactElement => {
+    if (f.id === "ctxSize") {
+      const isCustom = ctxOpt === CTX_CUSTOM;
+      const inner = isCustom
+        ? `custom: ${ctxCustom}${focused ? "▏" : ""}`
+        : String(CTX_PRESETS[ctxOpt]);
+      return chooserRow(f, focused, inner, ctxOpt > 0, ctxOpt < CTX_CUSTOM);
+    }
+    if (isEnumField(f.id)) {
+      const opts = ENUM_OPTS[f.id];
+      const idx = enumOpt[f.id];
+      return chooserRow(f, focused, opts[idx]!, idx > 0, idx < opts.length - 1);
+    }
+    return (
+      <Box key={f.id}>
+        <Box width={13}>
+          <Text color={focused ? "cyan" : undefined}>
+            {focused ? "› " : "  "}
+            {f.label}
+          </Text>
+        </Box>
+        <CursorText
+          value={values[f.id as TextFieldId]}
+          cursor={cursor}
+          focused={focused}
+          width={valueWidth}
+        />
+      </Box>
+    );
+  };
+
+  /** Render one generic flag row: an on/off switch, or a text value input. */
+  const renderFlag = (flag: LlamaFlag, focused: boolean): React.ReactElement => {
+    const label = (focused ? "› " : "  ") + flag.flag;
+    const value = extraFlags[flag.flag] ?? "";
+    return (
+      <Box key={flag.flag}>
+        <Box width={FLAG_LABEL_WIDTH}>
+          <Text color={focused ? "cyan" : undefined} wrap="truncate-end">
+            {label}
+          </Text>
+        </Box>
+        {flag.takesValue ? (
+          <CursorText
+            value={value}
+            cursor={cursor}
+            focused={focused}
+            width={flagValueWidth}
+            placeholder={flag.valueHint}
+          />
+        ) : (
+          <Text color={focused ? "cyan" : value === "on" ? "green" : undefined}>
+            {focused ? "‹ " : "  "}
+            {value === "on" ? "on" : "off"}
+            {focused ? " ›" : ""}
+          </Text>
+        )}
+      </Box>
+    );
+  };
+
   const form = (
     <Box flexDirection="column" flexGrow={1}>
-      {visibleFields.map((f, vi) => {
-        const i = start + vi;
-        const focused = i === focus;
-
-        if (f.id === "ctxSize") {
-          const isCustom = ctxOpt === CTX_CUSTOM;
-          const inner = isCustom
-            ? `custom: ${ctxCustom}${focused ? "▏" : ""}`
-            : String(CTX_PRESETS[ctxOpt]);
-          return chooserRow(f, focused, inner, ctxOpt > 0, ctxOpt < CTX_CUSTOM);
-        }
-
-        if (isEnumField(f.id)) {
-          const opts = ENUM_OPTS[f.id];
-          const idx = enumOpt[f.id];
-          return chooserRow(f, focused, opts[idx]!, idx > 0, idx < opts.length - 1);
-        }
-
+      {visibleItems.map((it, vi) => {
+        const focused = start + vi === focus;
+        if (it.kind === "field") return renderField(it.field, focused);
+        if (it.kind === "flag") return renderFlag(it.flag, focused);
+        // Search row, headed by an "all flags" divider.
         return (
-          <Box key={f.id}>
-            <Box width={13}>
-              <Text color={focused ? "cyan" : undefined}>
-                {focused ? "› " : "  "}
-                {f.label}
-              </Text>
+          <Box key="__flagsearch" flexDirection="column">
+            <Text dimColor>
+              ── all flags{flagsSpec?.version ? ` · llama-server ${flagsSpec.version}` : ""} ──
+            </Text>
+            <Box>
+              <Box width={FLAG_LABEL_WIDTH}>
+                <Text color={focused ? "cyan" : undefined}>
+                  {focused ? "› " : "  "}
+                  search
+                </Text>
+              </Box>
+              <CursorText
+                value={flagSearch}
+                cursor={cursor}
+                focused={focused}
+                width={flagValueWidth}
+                placeholder="filter by name or description…"
+              />
             </Box>
-            {/* truncate-start keeps the tail (and cursor) of long paths visible. */}
-            <CursorText
-              value={values[f.id as TextFieldId]}
-              cursor={cursor}
-              focused={focused}
-              width={valueWidth}
-            />
+            {generic.length === 0 ? (
+              <Text dimColor>
+                {"  "}
+                {genericTotal > 0
+                  ? "no flags match the filter"
+                  : flagsSpec == null
+                    ? "flags unavailable — restart the daemon (llamactl daemon stop) to enable"
+                    : flagsSpec.version
+                      ? "couldn't read this binary's flags from --help"
+                      : "llama-server not found — set llamaServerPath or activate an install"}
+              </Text>
+            ) : null}
           </Box>
         );
       })}
@@ -626,18 +810,57 @@ export function FlagEditor({
             borderRight={false}
             borderBottom={false}
           >
-            <Text bold color="cyan">
-              {focusedField.label}
-            </Text>
-            <Text dimColor>{info.flag}</Text>
-            <Box marginTop={1}>
-              <Text>{info.desc}</Text>
-            </Box>
-            {info.note ? (
-              <Box marginTop={1}>
-                <Text dimColor>{info.note}</Text>
-              </Box>
-            ) : null}
+            {info && focusedItem?.kind === "field" ? (
+              <>
+                <Text bold color="cyan">
+                  {focusedItem.field.label}
+                </Text>
+                <Text dimColor>{info.flag}</Text>
+                <Box marginTop={1}>
+                  <Text>{info.desc}</Text>
+                </Box>
+                {info.note ? (
+                  <Box marginTop={1}>
+                    <Text dimColor>{info.note}</Text>
+                  </Box>
+                ) : null}
+              </>
+            ) : focusedItem?.kind === "flag" ? (
+              <>
+                <Text bold color="cyan">
+                  {focusedItem.flag.flag}
+                  {focusedItem.flag.short ? `, ${focusedItem.flag.short}` : ""}
+                </Text>
+                <Text dimColor>
+                  {focusedItem.flag.takesValue
+                    ? `takes a value${focusedItem.flag.valueHint ? `: ${focusedItem.flag.valueHint}` : ""}`
+                    : "on/off switch (←/→ or space)"}
+                </Text>
+                {focusedItem.flag.help ? (
+                  <Box marginTop={1}>
+                    <Text>{focusedItem.flag.help}</Text>
+                  </Box>
+                ) : null}
+                {focusedItem.flag.default ? (
+                  <Box marginTop={1}>
+                    <Text dimColor>default: {focusedItem.flag.default}</Text>
+                  </Box>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Text bold color="cyan">
+                  All flags
+                </Text>
+                <Text dimColor>llama-server --help</Text>
+                <Box marginTop={1}>
+                  <Text>
+                    Every flag the active binary accepts, beyond the curated fields above. Type to
+                    filter; ↑↓ to move; ←/→ or space toggles a switch.
+                  </Text>
+                </Box>
+              </>
+            )}
           </Box>
         ) : null}
       </Box>

@@ -16,6 +16,7 @@ import type {
   ISupervisor,
   LaunchSpec,
   LlamaServerInfo,
+  LlamaServerSpec,
   Model,
   ModelResolver,
   RunningModel,
@@ -23,6 +24,7 @@ import type {
 import { LlamactlError } from "../errors.ts";
 import { findFreePort, isPortFree } from "../net/ports.ts";
 import { applyDefaults, specToArgs, validateSpec } from "../instances/spec.ts";
+import { parseLlamaHelp } from "../llama/help.ts";
 
 export interface SupervisorOptions {
   config: Config;
@@ -85,6 +87,8 @@ export class Supervisor implements ISupervisor {
   private shuttingDown = false;
   /** Cached `llama-server` probes, keyed by resolved binary path (it can change). */
   private readonly serverProbes = new Map<string, Promise<LlamaServerInfo>>();
+  /** Cached `--help` flag parses, keyed by resolved binary path. */
+  private readonly flagProbes = new Map<string, Promise<LlamaServerSpec>>();
 
   constructor(opts: SupervisorOptions) {
     this.config = opts.config;
@@ -271,6 +275,57 @@ export class Supervisor implements ISupervisor {
     const found = this.looksLikePath(path) ? existsSync(path) : Bun.which(path) !== null;
     if (!found) return { path, found: false };
     return { path, found: true, version: await this.runVersionProbe(path) };
+  }
+
+  /**
+   * Report the flags the binary accepts, parsed from `--help`, cached per binary
+   * path. Empty flag list when the binary is missing or its help is unparseable.
+   */
+  serverFlags(): Promise<LlamaServerSpec> {
+    const bin = this.resolveBin();
+    let probe = this.flagProbes.get(bin);
+    if (!probe) {
+      probe = this.probeFlags(bin);
+      this.flagProbes.set(bin, probe);
+    }
+    return probe;
+  }
+
+  private async probeFlags(bin: string): Promise<LlamaServerSpec> {
+    const info = await this.serverInfo();
+    const version = info.version ?? null;
+    if (!info.found) return { version, flags: [] };
+    const text = await this.runHelpProbe(bin);
+    return { version, flags: parseLlamaHelp(text) };
+  }
+
+  private async runHelpProbe(bin: string): Promise<string> {
+    try {
+      const proc = Bun.spawn({
+        cmd: [...this.spawnPrefix, bin, "--help"],
+        env: { ...process.env },
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "ignore",
+      });
+      // Guard against a binary that ignores --help and tries to serve forever.
+      const kill = setTimeout(() => {
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, 5000);
+      const [out, err] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      await proc.exited;
+      clearTimeout(kill);
+      return out + err;
+    } catch {
+      return "";
+    }
   }
 
   private async runVersionProbe(bin: string): Promise<string | undefined> {

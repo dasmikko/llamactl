@@ -97,6 +97,13 @@ export interface LaunchSpec {
   host?: string;
   /** Fixed --port, or undefined ("auto") to let the supervisor assign one. */
   port?: number;
+  /**
+   * Arbitrary `llama-server` flags discovered from `--help`, beyond the curated
+   * fields above. Keyed by the canonical long flag (e.g. "--rope-freq-base").
+   * A string value is emitted as `<flag> <value>`; `true` is a boolean switch
+   * emitted as `<flag>` alone. Emitted after the curated flags, before extraArgs.
+   */
+  extraFlags?: Record<string, string | true>;
   /** Freeform args appended verbatim after the structured ones. */
   extraArgs?: string[];
 }
@@ -460,6 +467,45 @@ export interface LlamaServerInfo {
   version?: string;
 }
 
+/**
+ * A single `llama-server` command-line flag parsed from its `--help` output.
+ * The canonical `flag` is the first long form (e.g. "--ctx-size"); `short` is a
+ * single-dash alias when present.
+ */
+export interface LlamaFlag {
+  /** Canonical long flag including dashes, e.g. "--ctx-size". */
+  flag: string;
+  /** Single-dash alias, e.g. "-c", when the help lists one. */
+  short?: string;
+  /** True when the flag takes a value (a placeholder followed it); else a switch. */
+  takesValue: boolean;
+  /** The value placeholder as printed, e.g. "N", "FNAME", "{none,linear,yarn}". */
+  valueHint?: string;
+  /** Choices parsed from a `{a,b,c}` placeholder, when the value is an enum. */
+  enumValues?: string[];
+  /** Default value text parsed from a "(default: …)" note, when present. */
+  default?: string;
+  /** Help/description text (continuation lines joined, env/default notes stripped). */
+  help: string;
+  /** Section header the flag appeared under, e.g. "server params". */
+  section?: string;
+}
+
+/**
+ * The set of flags a `llama-server` binary accepts, parsed from `--help`, plus
+ * the binary version it was read from (for cache invalidation / display).
+ * `flags` is empty when the binary is missing or its help couldn't be parsed.
+ */
+export interface LlamaServerSpec {
+  version: string | null;
+  flags: LlamaFlag[];
+}
+
+/** GET /llama/flags response — the parsed flag spec of the active binary. */
+export interface LlamaFlagsResponse {
+  spec: LlamaServerSpec;
+}
+
 /** GET /stats response — latest resource snapshot + llama-server availability. */
 export interface StatsResponse {
   stats: StatsSnapshot;
@@ -588,6 +634,12 @@ export interface ISupervisor {
    * was found, and its version. Result is detected once and cached.
    */
   serverInfo(): Promise<LlamaServerInfo>;
+  /**
+   * Report the flags the `llama-server` binary accepts, parsed from `--help`.
+   * Detected once per binary and cached; resolves to an empty flag list when the
+   * binary is missing or its help can't be parsed.
+   */
+  serverFlags(): Promise<LlamaServerSpec>;
   /**
    * Ensure a model is running AND has passed its /health readiness check,
    * starting it from the spec if necessary. Throws LlamactlError on
