@@ -15,6 +15,8 @@ function model(id: string, name = id): Model {
     contextLength: 4096,
     nLayers: 32,
     kvDim: 128,
+    nEmbd: null,
+    nHeads: null,
     kind: "text",
     org: null,
     repo: null,

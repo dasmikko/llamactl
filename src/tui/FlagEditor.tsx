@@ -45,6 +45,18 @@ export interface FlagEditorProps {
   /** The resolved model, when known, used for the live VRAM/RAM estimate. */
   model?: Model;
   /**
+   * Whether a GPU is present. When false the estimate runs everything in RAM
+   * (llama.cpp ignores --gpu-layers on a CPU-only host) and the label shows RAM
+   * only. Defaults to true.
+   */
+  gpuAvailable?: boolean;
+  /**
+   * Live measured usage of this model's running instance (RSS / attributed
+   * VRAM), shown next to the estimate so the two can be compared. Omit when the
+   * model isn't running.
+   */
+  actual?: { rssBytes: number; vramBytes: number };
+  /**
    * Flags the active llama-server binary accepts (parsed from --help). When
    * present, every non-curated flag is offered in a searchable "all flags"
    * section below the curated fields. Omit (or empty) to show only the curated
@@ -356,6 +368,8 @@ export function FlagEditor({
   availableHeight,
   availableWidth,
   model,
+  gpuAvailable = true,
+  actual,
   flagsSpec,
 }: FlagEditorProps): React.ReactElement {
   // Drop the Name row when editing a model's inline flags so it isn't in the
@@ -662,14 +676,23 @@ export function FlagEditor({
   // Live memory estimate from the model's GGUF dims and the current flags.
   const estimate = model
     ? estimateUsage(
-        { sizeBytes: model.sizeBytes, nLayers: model.nLayers, kvDim: model.kvDim },
+        {
+          sizeBytes: model.sizeBytes,
+          nLayers: model.nLayers,
+          kvDim: model.kvDim,
+          nEmbd: model.nEmbd,
+          nHeads: model.nHeads,
+        },
         {
           model: values.model,
           ctxSize: ctxValue(),
           gpuLayers: parseNum(values.gpuLayers),
+          ubatchSize: parseNum(values.ubatchSize),
           cacheTypeK: enumValue("cacheTypeK"),
           cacheTypeV: enumValue("cacheTypeV"),
+          flashAttn: enumValue("flashAttn") as "on" | "off" | undefined,
         },
+        { gpuAvailable },
       )
     : null;
 
@@ -868,15 +891,31 @@ export function FlagEditor({
         {estimate ? (
           <Text wrap="truncate-end">
             <Text color="magenta">≈ </Text>
-            <Text bold>{humanBytes(estimate.vramBytes)}</Text>
-            <Text dimColor> VRAM · </Text>
-            <Text bold>{humanBytes(estimate.ramBytes)}</Text>
-            <Text dimColor> RAM</Text>
+            {gpuAvailable ? (
+              <>
+                <Text bold>{humanBytes(estimate.vramBytes)}</Text>
+                <Text dimColor> VRAM · </Text>
+                <Text bold>{humanBytes(estimate.ramBytes)}</Text>
+                <Text dimColor> RAM</Text>
+              </>
+            ) : (
+              <>
+                <Text bold>{humanBytes(estimate.ramBytes)}</Text>
+                <Text dimColor> RAM (CPU-only — no GPU)</Text>
+              </>
+            )}
             <Text dimColor>
               {`   (weights ${humanBytes(model!.sizeBytes)} · KV ${
                 estimate.kvUnknown ? "n/a" : humanBytes(estimate.kvBytes)
               })`}
             </Text>
+            {actual ? (
+              <Text color="green">
+                {`   · live ${humanBytes(actual.rssBytes)} RAM${
+                  gpuAvailable ? ` · ${humanBytes(actual.vramBytes)} VRAM` : ""
+                }`}
+              </Text>
+            ) : null}
           </Text>
         ) : (
           <Text dimColor>≈ estimate unavailable (model not found)</Text>

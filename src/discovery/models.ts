@@ -286,6 +286,8 @@ export async function discoverModels(opts?: DiscoverOptions): Promise<Model[]> {
       contextLength: meta.contextLength,
       nLayers: meta.nLayers,
       kvDim: meta.kvDim,
+      nEmbd: meta.nEmbd,
+      nHeads: meta.nHeads,
       kind: meta.kind,
       org: parseOrg(f.path),
       repo: parseRepo(f.path),

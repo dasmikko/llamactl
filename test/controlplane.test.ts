@@ -21,7 +21,7 @@ import { createServer, type Server } from "node:net";
 const TOKEN = "a".repeat(64);
 
 function model(id: string): Model {
-  return { id, name: id, path: `/models/${id}.gguf`, sizeBytes: 1, quant: null, source: "config", mtimeMs: 0, arch: null, contextLength: null, nLayers: null, kvDim: null, kind: "text", org: null , repo: null };
+  return { id, name: id, path: `/models/${id}.gguf`, sizeBytes: 1, quant: null, source: "config", mtimeMs: 0, arch: null, contextLength: null, nLayers: null, kvDim: null, nEmbd: null, nHeads: null, kind: "text", org: null , repo: null };
 }
 function running(id: string): RunningModel {
   return {

@@ -18,6 +18,10 @@ export interface GgufMeta {
   nLayers: number | null;
   /** Per-layer KV dimension (n_head_kv × head_dim), for KV-cache sizing, or null. */
   kvDim: number | null;
+  /** Embedding/hidden size ({arch}.embedding_length), for compute-buffer sizing, or null. */
+  nEmbd: number | null;
+  /** Attention head count ({arch}.attention.head_count), for attention-scratch sizing, or null. */
+  nHeads: number | null;
 }
 
 /** GGUF metadata value type tags. */
@@ -159,7 +163,7 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
 
   // Magic "GGUF" (0x47 0x47 0x55 0x46, little-endian uint32 0x46554747).
   if (view.byteLength < 24 || c.u32() !== 0x46554747) {
-    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null };
+    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null, nEmbd: null, nHeads: null };
   }
   c.u32(); // version
   c.u64(); // tensor count
@@ -237,7 +241,7 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
       ? "embedding"
       : "text";
 
-  return { arch, contextLength, kind, nLayers, kvDim };
+  return { arch, contextLength, kind, nLayers, kvDim, nEmbd, nHeads: nHead };
 }
 
 /**
@@ -250,6 +254,6 @@ export async function readGgufMeta(path: string): Promise<GgufMeta> {
     const buf = await slice.arrayBuffer();
     return parseHeader(buf, path);
   } catch {
-    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null };
+    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null, nEmbd: null, nHeads: null };
   }
 }

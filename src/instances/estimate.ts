@@ -3,10 +3,12 @@
  *
  * Weights are taken from the GGUF file size (≈ total weight memory); the KV
  * cache is computed from the model's layer count and per-layer KV dimension
- * together with the chosen context size and cache-quant types. These are
- * ballpark figures: they ignore the exact compute-buffer size, `--n-cpu-moe`
- * expert offload, LoRA adapters, and allocator padding. Treat the result as a
- * planning guide, not a guarantee.
+ * together with the chosen context size and cache-quant types. GPU overhead is
+ * the CUDA runtime reservation plus, without flash attention, the attention
+ * scores scratch (which grows with heads × batch × context). These are ballpark
+ * figures: they ignore `--n-cpu-moe` expert offload, LoRA adapters, exact
+ * compute-graph layout, and allocator padding. Treat the result as a planning
+ * guide, not a guarantee.
  */
 
 import type { LaunchSpec } from "../types.ts";
@@ -19,6 +21,10 @@ export interface ModelDims {
   nLayers: number | null;
   /** Per-layer KV dimension (n_head_kv × head_dim), or null if unknown. */
   kvDim: number | null;
+  /** Embedding/hidden size, for the activation buffer; null if unknown. */
+  nEmbd: number | null;
+  /** Attention head count, for the attention-scores scratch; null if unknown. */
+  nHeads: number | null;
 }
 
 export interface UsageEstimate {
@@ -32,6 +38,8 @@ export interface UsageEstimate {
   weightsRamBytes: number;
   /** KV-cache size (split across GPU/RAM by the offload fraction). */
   kvBytes: number;
+  /** GPU overhead: CUDA context + compute/attention scratch buffers. */
+  overheadBytes: number;
   /** True when the KV cache couldn't be computed (missing model dims). */
   kvUnknown: boolean;
 }
@@ -52,17 +60,39 @@ const CACHE_BYTES: Record<string, number> = {
 /** Defaults mirror applyDefaults so the estimate matches what would launch. */
 const DEFAULT_CTX = 4096;
 const DEFAULT_NGL = 99;
-/** Rough fixed GPU overhead (CUDA context + compute buffers) when offloading. */
-const GPU_OVERHEAD = 320 * 1024 * 1024;
+/** llama.cpp's default physical (micro) batch — sizes the compute scratch. */
+const DEFAULT_UBATCH = 512;
+/** Baseline GPU memory the CUDA runtime + cuBLAS reserve once anything offloads. */
+const CUDA_CONTEXT = 400 * 1024 * 1024;
+/** A handful of hidden-width f32 working tensors live in the compute buffer. */
+const ACT_TENSORS = 6;
+
+/** Optional knobs that depend on the host, not the launch spec. */
+export interface EstimateOptions {
+  /**
+   * Whether a GPU is actually present. When false (a CPU-only box), `--gpu-layers`
+   * is ignored by llama.cpp and the whole model runs in RAM — so we force the
+   * offload fraction to 0 regardless of `spec.gpuLayers`. Defaults to true.
+   */
+  gpuAvailable?: boolean;
+}
 
 /**
  * Estimate GPU/RAM usage for running `model` under `spec`. The context size is
  * the total across parallel slots (llama-server splits `--ctx-size` among
- * `--parallel` slots), so parallelism doesn't multiply the KV cache here.
+ * `--parallel` slots), so parallelism doesn't multiply the KV cache here. On a
+ * host with no GPU, pass `{ gpuAvailable: false }` so everything lands in RAM.
  */
-export function estimateUsage(model: ModelDims, spec: LaunchSpec): UsageEstimate {
+export function estimateUsage(
+  model: ModelDims,
+  spec: LaunchSpec,
+  opts?: EstimateOptions,
+): UsageEstimate {
+  const gpuAvailable = opts?.gpuAvailable ?? true;
   const ctx = spec.ctxSize ?? DEFAULT_CTX;
-  const ngl = spec.gpuLayers ?? DEFAULT_NGL;
+  // No GPU ⇒ -ngl is ignored and the model runs on the CPU, so nothing offloads.
+  const ngl = gpuAvailable ? (spec.gpuLayers ?? DEFAULT_NGL) : 0;
+  const ubatch = spec.ubatchSize ?? DEFAULT_UBATCH;
   const bytesK = CACHE_BYTES[spec.cacheTypeK ?? "f16"] ?? 2;
   const bytesV = CACHE_BYTES[spec.cacheTypeV ?? "f16"] ?? 2;
 
@@ -88,14 +118,31 @@ export function estimateUsage(model: ModelDims, spec: LaunchSpec): UsageEstimate
 
   const kvVram = Math.round(kvBytes * frac);
   const kvRam = kvBytes - kvVram;
-  const overhead = frac > 0 ? GPU_OVERHEAD : 0;
+
+  // The compute buffer: a few hidden-width activation tensors for the physical
+  // batch, plus — WITHOUT flash attention — the attention-scores scratch (the KQ
+  // matrix in f32) which grows with heads × batch × context. It lives on whatever
+  // device runs the layers, so it splits across GPU/RAM by the offload fraction.
+  // Flash attention materialises no scores: explicit on/off is honoured, while
+  // the "auto" default follows the device — enabled on GPU, disabled on CPU.
+  const onGpu = gpuAvailable && frac > 0;
+  const flashOn = spec.flashAttn === "on" || (spec.flashAttn == null && onGpu);
+  const act = model.nEmbd ? ubatch * model.nEmbd * 4 * ACT_TENSORS : 0;
+  const attnScratch = !flashOn && model.nHeads ? model.nHeads * ubatch * ctx * 4 : 0;
+  const computeBuffer = act + attnScratch;
+  const computeVram = Math.round(computeBuffer * frac);
+  const computeRam = computeBuffer - computeVram;
+  // A roughly constant CUDA-runtime reservation (cuBLAS handles, etc.) — GPU only.
+  const cudaContext = onGpu ? CUDA_CONTEXT : 0;
+  const overheadBytes = computeVram + cudaContext;
 
   return {
-    vramBytes: weightsVramBytes + kvVram + overhead,
-    ramBytes: weightsRamBytes + kvRam,
+    vramBytes: weightsVramBytes + kvVram + overheadBytes,
+    ramBytes: weightsRamBytes + kvRam + computeRam,
     weightsVramBytes,
     weightsRamBytes,
     kvBytes,
+    overheadBytes,
     kvUnknown,
   };
 }

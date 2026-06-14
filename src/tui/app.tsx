@@ -499,6 +499,13 @@ function App({ config }: AppProps): React.ReactElement {
             availableHeight={screenRows - headerLines}
             availableWidth={columns}
             model={editor.model}
+            gpuAvailable={gpuAvailable}
+            actual={(() => {
+              const s = editor.model
+                ? stats?.instances.find((x) => x.modelId === editor.model!.id)
+                : undefined;
+              return s ? { rssBytes: s.rssBytes, vramBytes: s.vramBytes } : undefined;
+            })()}
             flagsSpec={llamaSpec ?? undefined}
           />
         ) : mode === "logs" && current?.running ? (

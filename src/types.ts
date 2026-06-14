@@ -39,6 +39,10 @@ export interface Model {
   nLayers: number | null;
   /** Per-layer KV dimension (n_head_kv × head_dim) for KV-cache sizing, or null. */
   kvDim: number | null;
+  /** Embedding/hidden size for compute-buffer sizing, or null. */
+  nEmbd: number | null;
+  /** Attention head count for attention-scratch sizing, or null. */
+  nHeads: number | null;
   /** Coarse kind inferred from metadata + filename. */
   kind: ModelKind;
   /** Author/org the model came from (e.g. "unsloth"), derived from the path, or null. */
