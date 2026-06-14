@@ -110,6 +110,7 @@ function App({ config }: AppProps): React.ReactElement {
     stats,
     llamaServer,
     llamaSpec,
+    daemon: daemonInfo,
     downloads,
     installs,
     error,
@@ -441,15 +442,23 @@ function App({ config }: AppProps): React.ReactElement {
   // and scrolls instead of overflowing the terminal. We subtract the height of
   // each fixed region by counting the lines it renders (the layout is all
   // single-line Text rows, so this stays in sync with the JSX below):
-  //   header  = round border (2) + title/CPU/RAM (3) + 2 per GPU + warnings
+  //   header  = round border (2) + title (1) + a two-column body whose height is
+  //             max(gauges, daemon facts) + warnings. Gauges = CPU + RAM + 2/GPU;
+  //             daemon facts = 6 rows (+1 when a download is in flight).
   //   downloads = title (1) + up to 5 rows + marginBottom (1), only when shown
   //   active   = title (1) + column header (1) + rows (or 1 empty line)
   //   favorites = marginTop (1) + title (1) + column header (1) + rows, when shown
   //   models chrome = marginTop (1) + title (1) + column header (1)
   //   footer  = status bar (1)
-  const gpuLines = gpuAvailable ? (stats?.gpus.length ?? 0) * 2 : 0;
+  const downloadingCount = downloads.filter((d) => d.status === "downloading").length;
+  const gaugeLines = 2 + (gpuAvailable ? (stats?.gpus.length ?? 0) * 2 : 0);
+  const daemonRows = daemonInfo ? 6 + (downloadingCount > 0 ? 1 : 0) : 0;
   const headerLines =
-    2 + 3 + gpuLines + (llamaServer && !llamaServer.found ? 1 : 0) + (error ? 1 : 0);
+    2 +
+    1 +
+    Math.max(gaugeLines, daemonRows) +
+    (llamaServer && !llamaServer.found ? 1 : 0) +
+    (error ? 1 : 0);
   const downloadsLines = downloads.length > 0 ? 1 + Math.min(5, downloads.length) + 1 : 0;
   const activeLines = 1 + 1 + Math.max(1, runningRows.length);
   const favoriteLines = favoriteRows.length > 0 ? 1 + 1 + 1 + favoriteRows.length : 0;
@@ -468,6 +477,12 @@ function App({ config }: AppProps): React.ReactElement {
         activeInstallName={activeInstallName}
         error={error}
         connected={connected}
+        daemon={daemonInfo}
+        now={now}
+        modelsCount={models.length}
+        runningCount={running.length}
+        profilesCount={instances.length}
+        downloadingCount={downloadingCount}
       />
 
       <Box flexGrow={1} flexDirection="column" overflow="hidden">

@@ -59,6 +59,8 @@ export interface UseDaemon {
   llamaServer: LlamaServerInfo | null;
   /** Flags the active llama-server binary accepts (parsed from --help); null until loaded. */
   llamaSpec: LlamaServerSpec | null;
+  /** The connected daemon's runtime (PID, control URL, start time); null when disconnected. */
+  daemon: { pid: number; controlUrl: string; startedAt: number } | null;
   downloads: Download[];
   /** Managed llama.cpp installs, in-flight/recent builds, and the active install id. */
   installs: InstallsResponse | null;
@@ -124,6 +126,7 @@ export function useDaemon(config: Config): UseDaemon {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [installs, setInstalls] = useState<InstallsResponse | null>(null);
   const [llamaSpec, setLlamaSpec] = useState<LlamaServerSpec | null>(null);
+  const [daemon, setDaemon] = useState<UseDaemon["daemon"]>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(true);
@@ -197,6 +200,11 @@ export function useDaemon(config: Config): UseDaemon {
         const conn = await connectDaemon({ config });
         if (!mountedRef.current) return;
         connRef.current = conn;
+        setDaemon({
+          pid: conn.runtime.pid,
+          controlUrl: conn.runtime.controlUrl,
+          startedAt: conn.runtime.startedAt,
+        });
         setConnected(true);
         setConnecting(false);
         await refreshStatic();
@@ -482,6 +490,7 @@ export function useDaemon(config: Config): UseDaemon {
     stats,
     llamaServer,
     llamaSpec,
+    daemon,
     downloads,
     installs,
     error,
