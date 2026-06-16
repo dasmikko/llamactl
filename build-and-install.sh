@@ -3,6 +3,11 @@ set -e
 
 cd /home/mjensen/repos/llamactl
 
+if command -v llamactl >/dev/null 2>&1; then
+  echo "Stopping running daemon..."
+  llamactl daemon stop || true
+fi
+
 echo "Building llamactl..."
 bun run build
 
