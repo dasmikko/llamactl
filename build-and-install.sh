@@ -4,7 +4,7 @@ set -e
 cd /home/mjensen/repos/llamactl
 
 echo "Building llamactl..."
-bun build --compile --outfile llamactl src/index.ts
+bun run build
 
 echo "Installing binary to ~/.local/bin/llamactl..."
 mkdir -p ~/.local/bin
