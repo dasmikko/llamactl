@@ -4,8 +4,8 @@ Guidance for working in this repo. Read this first.
 
 ## What this is
 
-`llamactl` — a Bun + TypeScript + **Ink** terminal UI for managing local
-`llama-server` (llama.cpp) instances. It discovers cached GGUF models, saves
+`llamactl` — a Bun + TypeScript + **SolidJS + opentui** terminal UI for managing
+local `llama-server` (llama.cpp) instances. It discovers cached GGUF models, saves
 per-model launch-flag profiles, runs instances via a background daemon, and shows
 live CPU / RAM / GPU / VRAM (+ temperatures). There is also a full headless CLI.
 
@@ -16,9 +16,17 @@ bun install
 bun test                 # full suite (uses a fake llama-server; no real model needed)
 bun test test/spec.test.ts   # a single file
 bun run typecheck        # bunx tsc --noEmit (strict; noUnusedLocals on)
-bun run build            # bun build --compile --outfile llamactl src/index.ts
-bun run src/index.ts     # run the TUI from source
+bun run build            # scripts/build.ts → Bun.build + @opentui/solid plugin → native binary
+bun run start            # run the TUI from source (= bun --preload @opentui/solid/preload src/index.ts)
 ```
+
+Running from source needs the opentui Solid preload so the `.tsx` JSX is
+transformed at import time (`bun run start`, or `bun --preload @opentui/solid/preload
+src/index.ts`). **Do not run `bun src/index.ts` bare** — the TUI import fails
+without it. `bun test` gets the preload via `bunfig.toml [test]`. The compiled
+binary needs no preload (the build plugin transforms JSX ahead of time), which is
+why the preload is scoped to test/dev, NOT a top-level bunfig preload (Bun would
+otherwise bake it into `--compile` and the binary would fail at startup).
 
 Always run **both** `bun run typecheck` and `bun test` before considering a change
 done. `tsc` strictness (`noUnusedLocals`/`noUnusedParameters`) catches dead
@@ -50,7 +58,7 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
 | Daemon + control plane + client | `src/daemon/*` |
 | Monitoring | `src/monitor/proc.ts`, `nvidia.ts`, `sampler.ts` |
 | Headless CLI | `src/index.ts`, `src/cli/*` |
-| TUI (Ink) | `src/tui/*` (`app.tsx` is the root + `runTui` entry) |
+| TUI (Solid + opentui) | `src/tui/*` (`app.tsx` is the root + `runTui` entry); build via `scripts/build.ts` |
 
 ## How key things work (so you don't relearn them)
 
@@ -100,6 +108,26 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
   *orphan* profile (its model isn't discovered) still gets its own standalone row.
 - **Model display names** are the raw GGUF filename stem (shard suffix removed,
   quant + separators kept) — see `friendlyName` in `src/discovery/models.ts`.
+- **TUI is SolidJS + opentui** (migrated from React + Ink). Conventions so you
+  don't reintroduce React habits: component bodies run **once** — anything derived
+  from reactive state must be an accessor (`() => ...`) or `createMemo`, never a
+  captured `const`; never destructure `props`. `useState→createSignal`,
+  `useEffect→createEffect`/`onMount`+`onCleanup`, `useMemo→createMemo`; lists use
+  `<For>`, conditionals `<Show>`/`<Switch>`. Intrinsics are lowercase (`<box>`/
+  `<text>`); Ink `<Box>` defaulted to row but opentui/Yoga default to **column**,
+  so horizontal rows need explicit `flexDirection="row"`. ⛔ **Never nest `<text>`
+  inside `<text>`** (opentui throws at runtime — this is what emptied the model
+  list) and `<span>` doesn't type `fg`/`attributes`: render inline colored runs as
+  **sibling `<text>` in a `<box flexDirection="row">`**. Colors are hardcoded
+  (`fg="cyan"`, no theme); `bold`/`dimColor`/`inverse`→`attributes={TextAttributes.*}`
+  (from `@opentui/core`); borders need `border borderStyle="rounded"`; a left-only
+  border is `border={["left"]}`. Keyboard: `useInput((input,key))`→`useKeyboard((key))`
+  from `@opentui/solid` (`key.name`/`key.ctrl`/`key.sequence`; lone Esc fires after
+  a 20ms flush — `key.name === "escape"` works). Shared primitives:
+  `src/tui/textinput.tsx` (`CursorText` block-cursor input + `editText(state, key, accept?)`)
+  and `src/tui/ShortcutBar.tsx` — reuse them in forms/footers. `useDaemon` returns a
+  `createStore` as `daemon.state` plus action methods. Headless render tests use
+  opentui's `testRender`+`captureCharFrame` (`test/tui-render.test.tsx`).
 - **Security:** control plane is loopback-only + bearer token (constant-time
   compare, rotated each start, never logged). Instances default to 127.0.0.1.
 
@@ -116,11 +144,14 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
 
 ## Gotchas
 
-- **`bun build --compile`** needs `react-devtools-core` as a dependency (Ink
-  imports it statically; it's only executed when `DEV=true`).
+- **The binary is built by `scripts/build.ts`, not `bun build --compile`.** Solid
+  JSX needs the `@opentui/solid` transform, which the bare CLI doesn't apply — so
+  the build drives `Bun.build()` with the Solid plugin + `compile`. opentui's
+  native renderer (`libopentui.so`, imported `with { type: "file" }`) is embedded
+  into the binary by Bun and dlopen'd at runtime (verified working).
 - The TUI is loaded via a dynamic `import("./tui/app.tsx")` in `index.ts` so
-  headless paths and the compiled binary don't pay for React/Ink unless the TUI
-  runs. Keep it that way.
+  headless paths and the compiled binary don't pay for Solid/opentui unless the
+  TUI runs. Keep it that way.
 - `src/discovery/models.ts` is reported as binary by `file(1)` (em-dashes in
   comments); grep with `-a` if needed.
 - `readGgufMeta` only reads the first ~1 MiB of a file; arch/context_length sit

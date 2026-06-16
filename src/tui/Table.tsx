@@ -1,13 +1,15 @@
 /**
  * The merged main list. Pure presentational: it receives already-joined and
  * already-filtered rows plus the selected index, and renders a fixed-width
- * table. Memoized so the 1.5s poll only repaints when the row data changes.
+ * table. Solid recomputes its derived accessors when the row data changes, so
+ * the 1.5s poll only repaints the parts that actually changed.
  */
 
-import React from "react";
-import { Box, Text } from "ink";
+import { For, Show, createMemo, type JSX } from "solid-js";
+import { TextAttributes } from "@opentui/core";
 import type { Row } from "./rows.ts";
 import { pct, humanBytes, humanUptime } from "./format.ts";
+import { C } from "./theme.ts";
 
 export interface TableProps {
   rows: Row[];
@@ -19,7 +21,7 @@ export interface TableProps {
   now: number;
   /** Section heading rendered above the column header. */
   title?: string;
-  /** Color of the section heading (any Ink color, incl. hex). Defaults to cyan. */
+  /** Color of the section heading (any color, incl. hex). Defaults to cyan. */
   titleColor?: string;
   /** "full" shows runtime columns; "catalog" shows just name/quant/size/status. */
   variant?: "full" | "catalog";
@@ -158,8 +160,6 @@ function pad(s: string, width: number, right: boolean): string {
 const FAV_GUTTER = 2;
 /** Filled star for a favorited row; a space otherwise (keeps columns aligned). */
 const FAV_STAR = "★";
-/** Color of the repo/author group headers in the grouped catalog. */
-const GROUP_COLOR = "#5f87ff";
 /** Header label for rows that have no parsed repo (bare local files). */
 const NO_REPO_LABEL = "local models";
 
@@ -167,110 +167,132 @@ function statusColor(row: Row): string | undefined {
   if (!row.running) return undefined;
   switch (row.running.status) {
     case "ready":
-      return "green";
+      return C.success;
     case "starting":
-      return "yellow";
+      return C.warning;
     case "stopping":
-      return "yellow";
+      return C.warning;
     case "crashed":
-      return "red";
+      return C.danger;
     default:
       return undefined;
   }
 }
 
-function TableImpl({
-  rows,
-  selectedIndex,
-  gpuAvailable,
-  now,
-  title,
-  titleColor = "cyan",
-  variant = "full",
-  grouped = false,
-  emptyText = "(none)",
-  fill = false,
-  width,
-  maxRows,
-}: TableProps): React.ReactElement {
-  const baseCols = COLUMNS.filter((c) => {
-    if (variant === "catalog") return CATALOG_HEADERS.has(c.header);
-    return !c.catalogOnly && (!c.gpuOnly || gpuAvailable);
-  });
+export function Table(props: TableProps): JSX.Element {
+  // Body runs once under Solid; everything derived from props is an accessor.
+  const variant = () => props.variant ?? "full";
+  const titleColor = () => props.titleColor ?? C.accent;
+  const grouped = () => props.grouped ?? false;
+  const emptyText = () => props.emptyText ?? "(none)";
+  const fill = () => props.fill ?? false;
+
+  const baseCols = () =>
+    COLUMNS.filter((c) => {
+      if (variant() === "catalog") return CATALOG_HEADERS.has(c.header);
+      return !c.catalogOnly && (!c.gpuOnly || props.gpuAvailable);
+    });
 
   // Stretch the NAME column so the row (and selection bar) fills the terminal.
   // The leading star gutter eats FAV_GUTTER columns, so the NAME column gives
   // those back to keep the row total exactly `width`.
-  const cols = (() => {
-    if (!width) return baseCols;
-    const others = baseCols.reduce((s, c) => (c.header === "NAME" ? s : s + c.width), 0);
-    const seps = baseCols.length - 1;
+  const cols = (): ColumnDef[] => {
+    const base = baseCols();
+    // The section is wrapped in a 1-cell border on each side, so the row content
+    // is `width - 2` to fit inside it.
+    const width = props.width == null ? undefined : props.width - 2;
+    if (!width) return base;
+    const others = base.reduce((s, c) => (c.header === "NAME" ? s : s + c.width), 0);
+    const seps = base.length - 1;
     const nameWidth = Math.max(20, width - others - seps - FAV_GUTTER);
-    return baseCols.map((c) => (c.header === "NAME" ? { ...c, width: nameWidth } : c));
-  })();
+    return base.map((c) => (c.header === "NAME" ? { ...c, width: nameWidth } : c));
+  };
 
   // Every row is prefixed with the star gutter; the header reserves the same
   // blank space so the columns stay aligned underneath it.
-  const headerLine =
+  const headerLine = () =>
     " ".repeat(FAV_GUTTER) +
-    cols.map((c) => pad(c.header, c.width, c.alignRight ?? false)).join(" ");
+    cols().map((c) => pad(c.header, c.width, c.alignRight ?? false)).join(" ");
+
+  // The joined column text for one row (everything after the star gutter).
+  const rowLine = (row: Row): string =>
+    cols()
+      .map((c) => pad(c.get(row, props.now), c.width, c.alignRight ?? false))
+      .join(" ");
 
   // Render one data row at absolute index `idx`. The star gutter doubles as the
   // group indent in the grouped catalog (repo headers sit flush-left, rows hang
   // two columns in beneath them).
-  const renderRow = (row: Row, idx: number): React.ReactElement => {
-    const selected = idx === selectedIndex;
+  //
+  // Selected and unselected rows share the SAME structure — a row <box> of
+  // sibling <text> runs (star, separator, line) — so the cursor moving never
+  // swaps element shapes (which left highlight artifacts). Only attributes/fg
+  // toggle, read REACTIVELY (accessors): selected rows invert every run (an
+  // unbroken highlight bar); unselected rows color the star gold and the line by
+  // status. The reactivity is what lets the highlight follow the cursor without
+  // the <For> re-creating the row.
+  const renderRow = (row: Row, idx: number): JSX.Element => {
+    const selected = () => idx === props.selectedIndex;
     const star = row.isFavorite ? FAV_STAR : " ";
-    const line = cols
-      .map((c) => pad(c.get(row, now), c.width, c.alignRight ?? false))
-      .join(" ");
-    // Selected rows invert the whole line (star included) so the highlight bar
-    // is unbroken; unselected rows color the star gold independently of the
-    // status color applied to the rest of the row.
-    if (selected) {
-      return (
-        <Text key={row.key} inverse>
-          {star} {line}
-        </Text>
-      );
-    }
-    const sc = statusColor(row);
+    const line = () => rowLine(row);
+    // Selected rows paint a solid accent bar via an explicit background, rather
+    // than INVERSE — it looks modern AND fully repaints the row cells, so no
+    // stale highlight lingers as the cursor moves. Unselected rows are
+    // transparent (the app's root background shows through): gold star + status/
+    // default-colored line.
+    const bg = () => (selected() ? C.sel : undefined);
     return (
-      <Text key={row.key}>
-        <Text color="yellow">{star}</Text>{" "}
-        <Text color={sc}>{line}</Text>
-      </Text>
+      <box flexDirection="row">
+        <text bg={bg()} fg={selected() ? C.selText : C.favorite}>{star}</text>
+        <text bg={bg()} fg={C.selText}>{" "}</text>
+        <text bg={bg()} fg={selected() ? C.selText : statusColor(row) ?? C.text}>{line()}</text>
+      </box>
     );
   };
 
   const repoLabel = (r: Row): string => r.repo ?? NO_REPO_LABEL;
-  const clamp = (s: string): string =>
-    width && s.length > width ? s.slice(0, width - 1) + "…" : s;
+  const clamp = (s: string): string => {
+    const width = props.width == null ? undefined : props.width - 2;
+    return width && s.length > width ? s.slice(0, width - 1) + "…" : s;
+  };
 
-  const chrome = (body: React.ReactNode): React.ReactElement => (
-    <Box flexDirection="column" flexGrow={fill ? 1 : 0}>
-      {title ? (
-        <Text bold color={titleColor}>
-          {title}
-        </Text>
-      ) : null}
-      <Text bold color="gray">
-        {headerLine}
-      </Text>
-      {rows.length === 0 ? <Text dimColor>{emptyText}</Text> : body}
-    </Box>
+  // The chrome wraps the section in a rounded border with its name set into the
+  // top border, over a column header and whichever body the grouped/flat branches
+  // build.
+  const chrome = (body: JSX.Element): JSX.Element => (
+    <box
+      flexDirection="column"
+      flexGrow={fill() ? 1 : 0}
+      border
+      borderStyle="rounded"
+      borderColor={C.border}
+      title={props.title}
+      titleColor={titleColor()}
+    >
+      <text fg={C.muted} attributes={TextAttributes.BOLD}>
+        {headerLine()}
+      </text>
+      <Show when={props.rows.length === 0} fallback={body}>
+        <text attributes={TextAttributes.DIM}>{emptyText()}</text>
+      </Show>
+    </box>
   );
 
-  if (grouped) {
-    // Interleave repo headers with their rows, then window over the combined
-    // line list so headers count toward the height budget. selDisplay is where
-    // the selected row lands in that combined list.
-    type Item =
-      | { kind: "header"; label: string; key: string }
-      | { kind: "row"; row: Row; idx: number };
+  // Interleave repo headers with their rows, then window over the combined line
+  // list so headers count toward the height budget. selDisplay is where the
+  // selected row lands in that combined list.
+  type Item =
+    | { kind: "header"; label: string; key: string }
+    | { kind: "row"; row: Row; idx: number };
+
+  // The interleaved-and-windowed view, recomputed REACTIVELY whenever the rows
+  // or the selection change — this is what makes the catalog update as models
+  // load and scroll as the cursor moves (a plain function called once would
+  // freeze the window at first render).
+  const groupedView = createMemo(() => {
     const items: Item[] = [];
     let prevLabel: string | null = null;
-    rows.forEach((row, idx) => {
+    props.rows.forEach((row, idx) => {
       const label = repoLabel(row);
       if (label !== prevLabel) {
         items.push({ kind: "header", label, key: `h:${label}` });
@@ -279,14 +301,15 @@ function TableImpl({
       items.push({ kind: "row", row, idx });
     });
     const selDisplay =
-      selectedIndex < 0
+      props.selectedIndex < 0
         ? -1
-        : items.findIndex((it) => it.kind === "row" && it.idx === selectedIndex);
+        : items.findIndex((it) => it.kind === "row" && it.idx === props.selectedIndex);
 
     // Reserve two lines when scrolling: one for the scroll indicator, one for a
     // sticky header repeating the group of the top row when it scrolled off.
+    const maxRows = props.maxRows;
     const scrolling = maxRows != null && items.length > maxRows;
-    const capacity = scrolling ? Math.max(1, maxRows! - 2) : items.length;
+    const capacity = scrolling ? Math.max(1, maxRows - 2) : items.length;
     const { start, end } = scrolling
       ? windowSlice(items.length, selDisplay, capacity)
       : { start: 0, end: items.length };
@@ -304,56 +327,67 @@ function TableImpl({
     }
     const hiddenAbove = items.slice(0, start).filter((it) => it.kind === "row").length;
     const hiddenBelow = items.slice(end).filter((it) => it.kind === "row").length;
+    return { visible, sticky, hiddenAbove, hiddenBelow, scrolling };
+  });
 
-    return chrome(
-      <>
-        {sticky ? (
-          <Text bold color={GROUP_COLOR} dimColor>
-            {clamp(sticky)}
-          </Text>
-        ) : null}
-        {visible.map((it) =>
+  const moreLine = (hiddenAbove: number, hiddenBelow: number): string =>
+    (hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : "") +
+    (hiddenAbove > 0 && hiddenBelow > 0 ? "   " : "") +
+    (hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : "");
+
+  const groupedBody = (): JSX.Element => (
+    <>
+      <Show when={groupedView().sticky}>
+        <text fg={C.group} attributes={TextAttributes.BOLD | TextAttributes.DIM}>
+          {clamp(groupedView().sticky!)}
+        </text>
+      </Show>
+      <For each={groupedView().visible}>
+        {(it) =>
           it.kind === "header" ? (
-            <Text key={it.key} bold color={GROUP_COLOR}>
+            <text fg={C.group} attributes={TextAttributes.BOLD}>
               {clamp(it.label)}
-            </Text>
+            </text>
           ) : (
             renderRow(it.row, it.idx)
-          ),
-        )}
-        {scrolling ? (
-          <Text dimColor>
-            {hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : ""}
-            {hiddenAbove > 0 && hiddenBelow > 0 ? "   " : ""}
-            {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
-          </Text>
-        ) : null}
-      </>,
-    );
-  }
+          )
+        }
+      </For>
+      <Show when={groupedView().scrolling}>
+        <text attributes={TextAttributes.DIM}>
+          {moreLine(groupedView().hiddenAbove, groupedView().hiddenBelow)}
+        </text>
+      </Show>
+    </>
+  );
 
   // Flat (ungrouped) rendering: window the rows directly, reserving one line for
   // the scroll indicator. The selected row stays in view (see windowSlice).
-  const scrolling = maxRows != null && rows.length > maxRows;
-  const { start, end } = scrolling
-    ? windowSlice(rows.length, selectedIndex, Math.max(1, maxRows - 1))
-    : { start: 0, end: rows.length };
-  const visible = rows.slice(start, end);
-  const hiddenAbove = start;
-  const hiddenBelow = rows.length - end;
+  const flatView = createMemo(() => {
+    const maxRows = props.maxRows;
+    const scrolling = maxRows != null && props.rows.length > maxRows;
+    const { start, end } = scrolling
+      ? windowSlice(props.rows.length, props.selectedIndex, Math.max(1, maxRows - 1))
+      : { start: 0, end: props.rows.length };
+    return {
+      visible: props.rows.slice(start, end),
+      start,
+      scrolling,
+      hiddenAbove: start,
+      hiddenBelow: props.rows.length - end,
+    };
+  });
 
-  return chrome(
+  const flatBody = (): JSX.Element => (
     <>
-      {visible.map((row, i) => renderRow(row, start + i))}
-      {scrolling ? (
-        <Text dimColor>
-          {hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : ""}
-          {hiddenAbove > 0 && hiddenBelow > 0 ? "   " : ""}
-          {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
-        </Text>
-      ) : null}
-    </>,
+      <For each={flatView().visible}>{(row, i) => renderRow(row, flatView().start + i())}</For>
+      <Show when={flatView().scrolling}>
+        <text attributes={TextAttributes.DIM}>
+          {moreLine(flatView().hiddenAbove, flatView().hiddenBelow)}
+        </text>
+      </Show>
+    </>
   );
-}
 
-export const Table = React.memo(TableImpl);
+  return chrome(grouped() ? groupedBody() : flatBody());
+}

@@ -1,0 +1,8 @@
+# Solid JSX (opentui) is transformed at import time by the opentui preload
+# plugin. This is needed only when running from source — `bun test` here and the
+# `--preload` flag on the dev run scripts in package.json. The compiled binary
+# (scripts/build.ts → Bun.build + @opentui/solid/bun-plugin) transforms the JSX
+# at build time, so it must NOT carry a runtime preload; hence this is scoped to
+# [test] rather than a top-level preload (which Bun would bake into --compile).
+[test]
+preload = ["@opentui/solid/preload"]

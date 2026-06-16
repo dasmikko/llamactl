@@ -4,11 +4,12 @@
  * progress. Pure/presentational — selection and keys live in app.tsx.
  */
 
-import React from "react";
-import { Box, Text } from "ink";
+import { For, Show, type JSX } from "solid-js";
+import { TextAttributes } from "@opentui/core";
 import type { LlamaInstall, BuildJob, BuildStatus } from "../types.ts";
 import { humanBytes } from "./format.ts";
 import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
+import { C } from "./theme.ts";
 
 export interface InstallsProps {
   installs: LlamaInstall[];
@@ -27,15 +28,15 @@ export interface InstallsProps {
 function buildStatusColor(status: BuildStatus): string | undefined {
   switch (status) {
     case "ready":
-      return "green";
+      return C.success;
     case "error":
-      return "red";
+      return C.danger;
     case "canceled":
-      return "yellow";
+      return C.warning;
     case "queued":
-      return "gray";
+      return C.muted;
     default:
-      return "cyan";
+      return C.accent;
   }
 }
 
@@ -51,128 +52,133 @@ function buildInFlight(status: BuildStatus): boolean {
   );
 }
 
-function InstallsImpl({
-  installs,
-  builds,
-  activeId,
-  selectedIndex,
-  selectedBuildIndex,
-  width,
-  shortcuts,
-}: InstallsProps): React.ReactElement {
+export function Installs(props: InstallsProps): JSX.Element {
   // Reserve a margin so the truncated log tail never wraps the terminal.
-  const tailWidth = Math.max(10, width - 6);
+  const tailWidth = () => Math.max(10, props.width - 6);
   return (
-    <Box
+    <box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="blue"
+      border
+      borderStyle="rounded"
+      borderColor={C.border}
+      backgroundColor={C.surface}
       paddingX={1}
     >
-      <Text bold color="blue">
+      <text fg={C.accent} attributes={TextAttributes.BOLD}>
         MANAGED LLAMA.CPP INSTALLS
-      </Text>
+      </text>
 
-      <Box>
-        <Box width={2}>
-          <Text> </Text>
-        </Box>
-        <Box width={22}>
-          <Text dimColor>NAME</Text>
-        </Box>
-        <Box width={16}>
-          <Text dimColor>REF</Text>
-        </Box>
-        <Box width={7}>
-          <Text dimColor>BACKEND</Text>
-        </Box>
-        <Box width={16}>
-          <Text dimColor>VERSION</Text>
-        </Box>
-        <Box width={10}>
-          <Text dimColor>SIZE</Text>
-        </Box>
-      </Box>
+      <box flexDirection="row">
+        <box width={2}>
+          <text> </text>
+        </box>
+        <box width={22}>
+          <text attributes={TextAttributes.DIM}>NAME</text>
+        </box>
+        <box width={16}>
+          <text attributes={TextAttributes.DIM}>REF</text>
+        </box>
+        <box width={7}>
+          <text attributes={TextAttributes.DIM}>BACKEND</text>
+        </box>
+        <box width={16}>
+          <text attributes={TextAttributes.DIM}>VERSION</text>
+        </box>
+        <box width={10}>
+          <text attributes={TextAttributes.DIM}>SIZE</text>
+        </box>
+      </box>
 
-      {installs.length === 0 ? (
-        <Text dimColor>(no managed installs — press n to build one)</Text>
-      ) : (
-        installs.map((ins, i) => {
-          const selected = i === selectedIndex;
-          const active = ins.id === activeId;
-          return (
-            <Box key={ins.id}>
-              <Box width={2}>
-                <Text color="#ff8700">{active ? "★" : " "}</Text>
-              </Box>
-              <Box width={22}>
-                <Text inverse={selected} wrap="truncate-end">
-                  {(selected ? "› " : "  ") + ins.name}
-                </Text>
-              </Box>
-              <Box width={16}>
-                <Text wrap="truncate-end">{ins.ref}</Text>
-              </Box>
-              <Box width={7}>
-                <Text>{ins.backend}</Text>
-              </Box>
-              <Box width={16}>
-                <Text wrap="truncate-end">{ins.version ?? "—"}</Text>
-              </Box>
-              <Box width={10}>
-                <Text>{ins.sizeBytes != null ? humanBytes(ins.sizeBytes) : "—"}</Text>
-              </Box>
-              {active ? <Text dimColor> (active)</Text> : null}
-            </Box>
-          );
-        })
-      )}
-
-      {builds.length > 0 ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold color="magenta">
-            BUILDS
-          </Text>
-          {builds.slice(0, 5).map((b, i) => {
-            const selected = i === selectedBuildIndex;
-            const inFlight = buildInFlight(b.status);
-            const tail = b.logTail.length > 0 ? b.logTail[b.logTail.length - 1]! : "";
-            const hint =
-              b.status === "error"
-                ? (b.error ?? "build failed")
-                : inFlight
-                  ? tail
-                  : b.status;
+      <Show
+        when={props.installs.length > 0}
+        fallback={
+          <text attributes={TextAttributes.DIM}>(no managed installs — press n to build one)</text>
+        }
+      >
+        <For each={props.installs}>
+          {(ins, i) => {
+            const selected = () => i() === props.selectedIndex;
+            const active = () => ins.id === props.activeId;
             return (
-              <Box key={b.id}>
-                <Box width={22}>
-                  <Text inverse={selected} wrap="truncate-end">
-                    {(selected ? "› " : "  ") + b.name}
-                  </Text>
-                </Box>
-                <Box width={12}>
-                  <Text color={buildStatusColor(b.status)}>{b.status}</Text>
-                </Box>
-                <Box flexGrow={1}>
-                  <Text
-                    color={b.status === "error" ? "red" : undefined}
-                    dimColor={inFlight}
-                    wrap="truncate-end"
-                  >
-                    {hint.length > tailWidth ? hint.slice(0, tailWidth - 1) + "…" : hint}
-                  </Text>
-                </Box>
-              </Box>
+              <box flexDirection="row">
+                <box width={2}>
+                  <text fg={C.favorite}>{active() ? "★" : " "}</text>
+                </box>
+                <box width={22}>
+                  {/* wrap="truncate-end" dropped: clipped by box width + overflow. */}
+                  <text bg={selected() ? C.sel : undefined} fg={selected() ? C.selText : C.text}>
+                    {(selected() ? "› " : "  ") + ins.name}
+                  </text>
+                </box>
+                <box width={16}>
+                  <text>{ins.ref}</text>
+                </box>
+                <box width={7}>
+                  <text>{ins.backend}</text>
+                </box>
+                <box width={16}>
+                  <text>{ins.version ?? "—"}</text>
+                </box>
+                <box width={10}>
+                  <text>{ins.sizeBytes != null ? humanBytes(ins.sizeBytes) : "—"}</text>
+                </box>
+                <Show when={active()}>
+                  <text attributes={TextAttributes.DIM}> (active)</text>
+                </Show>
+              </box>
             );
-          })}
-        </Box>
-      ) : null}
+          }}
+        </For>
+      </Show>
 
-      <Box marginTop={1}>
-        <ShortcutBar items={shortcuts} />
-      </Box>
-    </Box>
+      <Show when={props.builds.length > 0}>
+        <box flexDirection="column" marginTop={1}>
+          <text fg={C.accent} attributes={TextAttributes.BOLD}>
+            BUILDS
+          </text>
+          <For each={props.builds.slice(0, 5)}>
+            {(b, i) => {
+              const selected = () => i() === props.selectedBuildIndex;
+              const inFlight = () => buildInFlight(b.status);
+              const tail = b.logTail.length > 0 ? b.logTail[b.logTail.length - 1]! : "";
+              const hint =
+                b.status === "error"
+                  ? (b.error ?? "build failed")
+                  : inFlight()
+                    ? tail
+                    : b.status;
+              const hintText = () =>
+                hint.length > tailWidth() ? hint.slice(0, tailWidth() - 1) + "…" : hint;
+              return (
+                <box flexDirection="row">
+                  <box width={22}>
+                    {/* wrap="truncate-end" dropped: clipped by box width + overflow. */}
+                    <text bg={selected() ? C.sel : undefined} fg={selected() ? C.selText : C.text}>
+                      {(selected() ? "› " : "  ") + b.name}
+                    </text>
+                  </box>
+                  <box width={12}>
+                    <text fg={buildStatusColor(b.status)}>{b.status}</text>
+                  </box>
+                  <box flexGrow={1}>
+                    {/* wrap="truncate-end" dropped: clipped by flexGrow box width. */}
+                    <text
+                      fg={b.status === "error" ? C.danger : C.text}
+                      attributes={inFlight() ? TextAttributes.DIM : TextAttributes.NONE}
+                    >
+                      {hintText()}
+                    </text>
+                  </box>
+                </box>
+              );
+            }}
+          </For>
+        </box>
+      </Show>
+
+      <box flexDirection="row" marginTop={1}>
+        <ShortcutBar items={props.shortcuts} />
+      </box>
+    </box>
   );
 }
-
-export const Installs = React.memo(InstallsImpl);

@@ -3,8 +3,9 @@
  * component behind mode === "help", so it only needs to render the list.
  */
 
-import React from "react";
-import { Box, Text } from "ink";
+import { For, type JSX } from "solid-js";
+import { TextAttributes } from "@opentui/core";
+import { C } from "./theme.ts";
 
 interface Binding {
   keys: string;
@@ -36,28 +37,32 @@ const BINDINGS: Binding[] = [
   { keys: "q / Ctrl-C", desc: "quit (the daemon keeps running)" },
 ];
 
-export function HelpOverlay(): React.ReactElement {
+export function HelpOverlay(): JSX.Element {
   return (
-    <Box
+    <box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="green"
+      border
+      borderStyle="rounded"
+      borderColor={C.border}
+      backgroundColor={C.surface}
       paddingX={1}
     >
-      <Text bold>Keybindings</Text>
-      <Box flexDirection="column" marginTop={1}>
-        {BINDINGS.map((b) => (
-          <Box key={b.keys}>
-            <Box width={14}>
-              <Text color="cyan">{b.keys}</Text>
-            </Box>
-            <Text>{b.desc}</Text>
-          </Box>
-        ))}
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor>Esc or ? to close</Text>
-      </Box>
-    </Box>
+      <text attributes={TextAttributes.BOLD}>Keybindings</text>
+      <box flexDirection="column" marginTop={1}>
+        <For each={BINDINGS}>
+          {(b) => (
+            <box flexDirection="row">
+              <box width={14}>
+                <text fg={C.accent}>{b.keys}</text>
+              </box>
+              <text>{b.desc}</text>
+            </box>
+          )}
+        </For>
+      </box>
+      <box flexDirection="row" marginTop={1}>
+        <text attributes={TextAttributes.DIM}>Esc or ? to close</text>
+      </box>
+    </box>
   );
 }

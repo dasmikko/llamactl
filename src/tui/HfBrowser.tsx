@@ -2,15 +2,17 @@
  * Hugging Face browse-and-pull modal. Three stages: a search box, a list of
  * matching repos, and a list of the repo's GGUF files. Picking a file kicks off
  * a download (tracked in the Downloads section) and closes the modal. Esc steps
- * back a stage, then closes. Hand-rolled input via useInput — no extra deps.
+ * back a stage, then closes. Hand-rolled input via useKeyboard — no extra deps.
  */
 
-import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { createSignal, Show, For, type JSX } from "solid-js";
+import { TextAttributes } from "@opentui/core";
 import type { HfRepo, HfFile } from "../types.ts";
 import { humanBytes } from "./format.ts";
 import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
-import { editText, CursorText } from "./textinput.tsx";
+import { useKeyboard } from "@opentui/solid";
+import { editText, CursorText, type TextEdit } from "./textinput.tsx";
+import { C } from "./theme.ts";
 
 type Stage = "search" | "results" | "files";
 
@@ -34,30 +36,24 @@ export interface HfBrowserProps {
   columns: number;
 }
 
-export function HfBrowser({
-  searchHf,
-  listHfFiles,
-  onPull,
-  onClose,
-  columns,
-}: HfBrowserProps): React.ReactElement {
-  const [stage, setStage] = useState<Stage>("search");
-  const [query, setQuery] = useState("");
-  const [queryCursor, setQueryCursor] = useState(0);
-  const [repos, setRepos] = useState<HfRepo[]>([]);
-  const [repoIdx, setRepoIdx] = useState(0);
-  const [repo, setRepo] = useState("");
-  const [files, setFiles] = useState<HfFile[]>([]);
-  const [fileIdx, setFileIdx] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+export function HfBrowser(props: HfBrowserProps): JSX.Element {
+  const [stage, setStage] = createSignal<Stage>("search");
+  const [search, setSearch] = createSignal<TextEdit>({ value: "", cursor: 0 });
+  const [repos, setRepos] = createSignal<HfRepo[]>([]);
+  const [repoIdx, setRepoIdx] = createSignal(0);
+  const [repo, setRepo] = createSignal("");
+  const [files, setFiles] = createSignal<HfFile[]>([]);
+  const [fileIdx, setFileIdx] = createSignal(0);
+  const [busy, setBusy] = createSignal(false);
+  const [err, setErr] = createSignal<string | null>(null);
 
   const runSearch = async (): Promise<void> => {
-    if (query.trim() === "") return;
+    const query = search().value.trim();
+    if (query === "") return;
     setBusy(true);
     setErr(null);
     try {
-      const r = await searchHf(query.trim());
+      const r = await props.searchHf(query);
       setRepos(r);
       setRepoIdx(0);
       setStage("results");
@@ -73,7 +69,7 @@ export function HfBrowser({
     setErr(null);
     setRepo(id);
     try {
-      const f = await listHfFiles(id);
+      const f = await props.listHfFiles(id);
       setFiles(f);
       setFileIdx(0);
       setStage("files");
@@ -84,164 +80,169 @@ export function HfBrowser({
     }
   };
 
-  useInput((input, key) => {
-    if (busy) return; // ignore keys while a request is in flight
+  useKeyboard((key) => {
+    if (busy()) return; // ignore keys while a request is in flight
 
-    if (key.escape) {
-      if (stage === "files") setStage("results");
-      else if (stage === "results") setStage("search");
-      else onClose();
+    if (key.name === "escape") {
+      if (stage() === "files") setStage("results");
+      else if (stage() === "results") setStage("search");
+      else props.onClose();
       return;
     }
 
-    if (stage === "search") {
-      if (key.return) {
+    if (stage() === "search") {
+      if (key.name === "return" || key.name === "enter") {
         void runSearch();
         return;
       }
-      const next = editText({ value: query, cursor: queryCursor }, input, key);
-      if (next) {
-        setQuery(next.value);
-        setQueryCursor(next.cursor);
-      }
+      const next = editText(search(), key);
+      if (next) setSearch(next);
       return;
     }
 
-    if (stage === "results") {
-      if (key.downArrow || input === "j") {
-        setRepoIdx((i) => Math.min(i + 1, Math.max(0, repos.length - 1)));
+    if (stage() === "results") {
+      if (key.name === "down" || key.sequence === "j") {
+        setRepoIdx((i) => Math.min(i + 1, Math.max(0, repos().length - 1)));
         return;
       }
-      if (key.upArrow || input === "k") {
+      if (key.name === "up" || key.sequence === "k") {
         setRepoIdx((i) => Math.max(0, i - 1));
         return;
       }
-      if (key.return && repos[repoIdx]) void openRepo(repos[repoIdx]!.id);
+      if ((key.name === "return" || key.name === "enter") && repos()[repoIdx()]) {
+        void openRepo(repos()[repoIdx()]!.id);
+      }
       return;
     }
 
     // stage === "files"
-    if (key.downArrow || input === "j") {
-      setFileIdx((i) => Math.min(i + 1, Math.max(0, files.length - 1)));
+    if (key.name === "down" || key.sequence === "j") {
+      setFileIdx((i) => Math.min(i + 1, Math.max(0, files().length - 1)));
       return;
     }
-    if (key.upArrow || input === "k") {
+    if (key.name === "up" || key.sequence === "k") {
       setFileIdx((i) => Math.max(0, i - 1));
       return;
     }
-    if (key.return && files[fileIdx]) {
-      onPull(repo, files[fileIdx]!.rfilename);
-      onClose();
+    if ((key.name === "return" || key.name === "enter") && files()[fileIdx()]) {
+      props.onPull(repo(), files()[fileIdx()]!.rfilename);
+      props.onClose();
     }
   });
 
-  return (
-    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
-      <Text bold color="magenta">
-        Hugging Face {stage === "search" ? "search" : stage === "results" ? `· results for "${query}"` : `· ${repo}`}
-      </Text>
-
-      {err ? <Text color="red">⚠ {err}</Text> : null}
-      {busy ? <Text dimColor>working…</Text> : null}
-
-      {stage === "search" ? (
-        <Box flexDirection="column">
-          {/* Hint on its own line: keeping it off the input row leaves the value
-              the full width, so the cursor never gets pushed onto a new line. */}
-          <Box>
-            <Text>search: </Text>
-            <CursorText
-              value={query}
-              cursor={queryCursor}
-              focused
-              width={Math.max(8, columns - 4 - 8 - 1)}
-            />
-          </Box>
-          <Text dimColor>(Enter to search, Esc to close)</Text>
-        </Box>
-      ) : null}
-
-      {stage === "results" ? (
-        repos.length === 0 ? (
-          <Text dimColor>no repos found — Esc to edit the query</Text>
-        ) : (
-          (() => {
-            const w = windowed(repos, repoIdx);
-            return (
-              <>
-                {w.slice.map((r, j) => {
-                  const i = w.start + j;
-                  return (
-                    <Text key={r.id} inverse={i === repoIdx}>
-                      {(i === repoIdx ? "› " : "  ") + r.id}
-                      {`  ↓${r.downloads}`}
-                      {r.gated ? "  [gated]" : ""}
-                    </Text>
-                  );
-                })}
-                {repos.length > MAX_ROWS ? (
-                  <Text dimColor>{`  ${repoIdx + 1}/${repos.length}`}</Text>
-                ) : null}
-              </>
-            );
-          })()
-        )
-      ) : null}
-
-      {stage === "files" ? (
-        files.length === 0 ? (
-          <Text dimColor>no GGUF files in this repo — Esc to go back</Text>
-        ) : (
-          (() => {
-            const w = windowed(files, fileIdx);
-            return (
-              <>
-                {w.slice.map((f, j) => {
-                  const i = w.start + j;
-                  return (
-                    <Text key={f.rfilename} inverse={i === fileIdx}>
-                      {(i === fileIdx ? "› " : "  ") + (f.quant ?? "?").padEnd(10)}
-                      {f.sizeBytes != null ? humanBytes(f.sizeBytes).padStart(10) : "         —"}
-                      {"  " + f.rfilename}
-                    </Text>
-                  );
-                })}
-                {files.length > MAX_ROWS ? (
-                  <Text dimColor>{`  ${fileIdx + 1}/${files.length}`}</Text>
-                ) : null}
-              </>
-            );
-          })()
-        )
-      ) : null}
-
-      <Box marginTop={1}>
-        <ShortcutBar items={footerShortcuts()} />
-      </Box>
-    </Box>
-  );
-
   /** Shortcuts usable at the current stage (and only when the list has rows). */
-  function footerShortcuts(): Shortcut[] {
-    if (stage === "search") {
+  const footerShortcuts = (): Shortcut[] => {
+    if (stage() === "search") {
       return [
         { key: "Enter", desc: "search" },
         { key: "Esc", desc: "close" },
       ];
     }
     const items: Shortcut[] = [];
-    if (stage === "results") {
-      if (repos.length > 0) {
+    if (stage() === "results") {
+      if (repos().length > 0) {
         items.push({ key: "↑↓", desc: "move" });
         items.push({ key: "Enter", desc: "open repo" });
       }
     } else {
-      if (files.length > 0) {
+      if (files().length > 0) {
         items.push({ key: "↑↓", desc: "move" });
         items.push({ key: "Enter", desc: "download" });
       }
     }
     items.push({ key: "Esc", desc: "back" });
     return items;
-  }
+  };
+
+  return (
+    <box flexDirection="column" border borderStyle="rounded" borderColor={C.border} backgroundColor={C.surface} paddingX={1}>
+      <box flexDirection="row">
+        <text fg={C.accent} attributes={TextAttributes.BOLD}>
+          {`Hugging Face ${
+            stage() === "search"
+              ? "search"
+              : stage() === "results"
+                ? `· results for "${search().value}"`
+                : `· ${repo()}`
+          }`}
+        </text>
+      </box>
+
+      <Show when={err()}>
+        <box flexDirection="row">
+          <text fg={C.danger}>⚠ {err()}</text>
+        </box>
+      </Show>
+      <Show when={busy()}>
+        <text attributes={TextAttributes.DIM}>working…</text>
+      </Show>
+
+      <Show when={stage() === "search"}>
+        <box flexDirection="column">
+          {/* Hint on its own line: keeping it off the input row leaves the value
+              the full width, so the cursor never gets pushed onto a new line. */}
+          <box flexDirection="row">
+            <text>search: </text>
+            <CursorText
+              value={search().value}
+              cursor={search().cursor}
+              focused
+              width={Math.max(8, props.columns - 4 - 8 - 1)}
+            />
+          </box>
+          <text attributes={TextAttributes.DIM}>(Enter to search, Esc to close)</text>
+        </box>
+      </Show>
+
+      <Show when={stage() === "results"}>
+        <Show
+          when={repos().length > 0}
+          fallback={<text attributes={TextAttributes.DIM}>no repos found — Esc to edit the query</text>}
+        >
+          <For each={windowed(repos(), repoIdx()).slice}>
+            {(r, j) => {
+              const i = windowed(repos(), repoIdx()).start + j();
+              return (
+                <text bg={i === repoIdx() ? C.sel : undefined} fg={i === repoIdx() ? C.selText : C.text}>
+                  {(i === repoIdx() ? "› " : "  ") + r.id +
+                    `  ↓${r.downloads}` +
+                    (r.gated ? "  [gated]" : "")}
+                </text>
+              );
+            }}
+          </For>
+          <Show when={repos().length > MAX_ROWS}>
+            <text attributes={TextAttributes.DIM}>{`  ${repoIdx() + 1}/${repos().length}`}</text>
+          </Show>
+        </Show>
+      </Show>
+
+      <Show when={stage() === "files"}>
+        <Show
+          when={files().length > 0}
+          fallback={<text attributes={TextAttributes.DIM}>no GGUF files in this repo — Esc to go back</text>}
+        >
+          <For each={windowed(files(), fileIdx()).slice}>
+            {(f, j) => {
+              const i = windowed(files(), fileIdx()).start + j();
+              return (
+                <text bg={i === fileIdx() ? C.sel : undefined} fg={i === fileIdx() ? C.selText : C.text}>
+                  {(i === fileIdx() ? "› " : "  ") + (f.quant ?? "?").padEnd(10) +
+                    (f.sizeBytes != null ? humanBytes(f.sizeBytes).padStart(10) : "         —") +
+                    "  " + f.rfilename}
+                </text>
+              );
+            }}
+          </For>
+          <Show when={files().length > MAX_ROWS}>
+            <text attributes={TextAttributes.DIM}>{`  ${fileIdx() + 1}/${files().length}`}</text>
+          </Show>
+        </Show>
+      </Show>
+
+      <box marginTop={1}>
+        <ShortcutBar items={footerShortcuts()} />
+      </box>
+    </box>
+  );
 }

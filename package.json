@@ -8,20 +8,19 @@
     "llamactl": "src/index.ts"
   },
   "scripts": {
-    "start": "bun run src/index.ts",
+    "start": "bun --preload @opentui/solid/preload src/index.ts",
     "test": "bun test",
-    "build": "bun build --compile --outfile llamactl src/index.ts",
+    "build": "bun run scripts/build.ts",
     "typecheck": "bunx tsc --noEmit"
   },
   "private": true,
   "dependencies": {
-    "ink": "^5.2.1",
-    "react": "^18.3.1",
-    "react-devtools-core": "^7.0.1"
+    "@opentui/core": "^0.4.1",
+    "@opentui/solid": "^0.4.1",
+    "solid-js": "^1.9.13"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/react": "^18.3.31",
     "typescript": "^5.9.3"
   }
 }

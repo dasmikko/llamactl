@@ -2,24 +2,28 @@
  * Shared single-line text-editing primitives for the hand-rolled inputs across
  * the TUI (FlagEditor, BuildForm, TextPrompt, Filter, HfBrowser) — so they all
  * support an actual cursor (←/→, Ctrl-A/E to jump, insert/backspace anywhere in
- * the string) and render a clean block cursor instead of inverting the whole
- * value. `editText` mutates a {value, cursor} pair from a key event; `CursorText`
- * renders that pair with the cursor cell highlighted.
+ * the string) and render a clean block cursor. `editText` mutates a
+ * {value, cursor} pair from an opentui key event; `CursorText` renders that pair
+ * with the cursor cell highlighted.
  */
 
-import React from "react";
-import { Text } from "ink";
-import type { Key } from "ink";
+import { Show } from "solid-js";
+import { TextAttributes, type KeyEvent } from "@opentui/core";
 
 export interface TextEdit {
   value: string;
   cursor: number;
 }
 
+/** True for a single printable character (not a control / escape sequence). */
+function isPrintable(s: string): boolean {
+  return s.length >= 1 && ![...s].some((c) => c.codePointAt(0)! < 0x20 || c === "\x7f");
+}
+
 /**
- * Apply a key event to a (value, cursor) state. Handles cursor movement (←/→,
- * Ctrl-A/Ctrl-E for start/end), backward delete, and inserting printable input
- * at the cursor. Returns the next state, or null when the key isn't a
+ * Apply an opentui key event to a (value, cursor) state. Handles cursor movement
+ * (←/→, Ctrl-A/Ctrl-E for start/end), backward delete, and inserting printable
+ * input at the cursor. Returns the next state, or null when the key isn't a
  * text-editing key (or is a no-op) so the caller can ignore it — Tab/Enter/Esc
  * and field navigation are the caller's to handle before calling this.
  *
@@ -28,28 +32,28 @@ export interface TextEdit {
  */
 export function editText(
   state: TextEdit,
-  input: string,
-  key: Key,
+  key: KeyEvent,
   accept?: (text: string) => boolean,
 ): TextEdit | null {
   const { value } = state;
   const cursor = Math.max(0, Math.min(state.cursor, value.length));
 
-  if (key.leftArrow) return { value, cursor: Math.max(0, cursor - 1) };
-  if (key.rightArrow) return { value, cursor: Math.min(value.length, cursor + 1) };
+  if (key.name === "left") return { value, cursor: Math.max(0, cursor - 1) };
+  if (key.name === "right") return { value, cursor: Math.min(value.length, cursor + 1) };
   // Ctrl-A / Ctrl-E jump to start / end (readline-style Home/End).
-  if (key.ctrl && input === "a") return { value, cursor: 0 };
-  if (key.ctrl && input === "e") return { value, cursor: value.length };
+  if (key.ctrl && key.name === "a") return { value, cursor: 0 };
+  if (key.ctrl && key.name === "e") return { value, cursor: value.length };
 
-  // Backspace and Delete both delete backward: terminals/Ink report the
-  // Backspace key as one or the other and we can't reliably tell them apart.
-  if (key.backspace || key.delete) {
+  // Backspace and Delete both delete backward: terminals report the Backspace
+  // key as one or the other and we can't reliably tell them apart.
+  if (key.name === "backspace" || key.name === "delete") {
     if (cursor === 0) return null;
     return { value: value.slice(0, cursor - 1) + value.slice(cursor), cursor: cursor - 1 };
   }
 
   // Insert printable input at the cursor, honouring the optional filter.
-  if (input && !key.ctrl && !key.meta) {
+  const input = key.sequence;
+  if (input && !key.ctrl && !key.meta && isPrintable(input)) {
     if (accept && !accept(input)) return null;
     return {
       value: value.slice(0, cursor) + input + value.slice(cursor),
@@ -69,68 +73,69 @@ export interface CursorTextProps {
   /**
    * Columns the value may occupy on its single line. When set, the text
    * horizontally scrolls to keep the cursor visible: it never wraps to a new
-   * line and never shows a truncation "…" — the two failure modes that bite a
-   * narrow terminal. Pass a value a column or two under the real space so a
-   * full-width window can't spill and wrap. Omit only when the value owns a
+   * line and never shows a truncation "…". Omit only when the value owns a
    * full, unconstrained line of its own.
    */
   width?: number;
 }
 
-// Reverse-video on/off, embedded directly in the value STRING (not a nested
-// `<Text inverse>`). A block cursor needs to sit *on* the character at the
-// cursor, which means inverting one cell — but a nested styled cell makes Ink
-// reuse a stale measured width when the content changes, allocating the line one
-// column too few so the trailing cell wraps onto the next row (the cursor jumps a
-// line below the focused field). Embedding the codes keeps it a single flat
-// string: Ink measures string width ANSI-aware, so the width is recomputed
-// correctly every render and nothing wraps.
-const INV = "\x1b[7m";
-const RST = "\x1b[27m";
-
-/** Draw a reverse-video block over `at` (a space at end-of-line where there is no char). */
-function blockOver(at: string): string {
-  return INV + (at === "" ? " " : at) + RST;
-}
-
 /**
  * Render a single-line value with a block cursor over the character at `cursor`
- * when focused (a reverse-video block; a blank block at end-of-line). Unfocused,
- * it renders the plain value, or a dim placeholder when empty. With `width`, the
- * value horizontally scrolls within that many columns, keeping the cursor visible.
+ * when focused. The cursor is a real reverse-video cell (a sibling <text> with
+ * the INVERSE attribute, not embedded ANSI — opentui renders its own attributes,
+ * not raw escapes). Unfocused, it renders the plain value, or a dim placeholder
+ * when empty. With `width`, the value horizontally scrolls within that many
+ * columns, keeping the cursor visible.
  */
-export function CursorText({
-  value,
-  cursor,
-  focused,
-  placeholder,
-  width,
-}: CursorTextProps): React.ReactElement {
-  if (!focused) {
-    if (value === "" && placeholder !== undefined) {
-      return <Text dimColor>{placeholder}</Text>;
+export function CursorText(props: CursorTextProps) {
+  // Tolerate an undefined value (an unset field) — treat it as empty.
+  const val = (): string => props.value ?? "";
+  const clampCursor = (): number => Math.max(0, Math.min(props.cursor, val().length));
+
+  // The (head, cursorChar, tail) split for the focused block cursor, honoring
+  // the optional horizontal-scroll window.
+  const parts = (): { head: string; at: string; tail: string } => {
+    const value = val();
+    const c = clampCursor();
+    if (props.width == null) {
+      return { head: value.slice(0, c), at: value.slice(c, c + 1) || " ", tail: value.slice(c + 1) };
     }
-    // Unfocused: keep the tail visible within the column (no wrap, no "…").
-    const shown =
-      width != null && value.length > width ? value.slice(value.length - width) : value;
-    return <Text>{shown}</Text>;
-  }
+    // Bounded: a width-column window anchored toward the right edge so typing at
+    // the end keeps the tail visible and the head scrolls in as the cursor moves.
+    const w = Math.max(1, props.width);
+    const start = Math.max(0, c - (w - 1));
+    return {
+      head: value.slice(start, c),
+      at: value.slice(c, c + 1) || " ",
+      tail: value.slice(c + 1, start + w),
+    };
+  };
 
-  const len = value.length;
-  const c = Math.max(0, Math.min(cursor, len));
+  // Unfocused tail-visible slice (no wrap, no "…").
+  const shown = (): string => {
+    const value = val();
+    return props.width != null && value.length > props.width
+      ? value.slice(value.length - props.width)
+      : value;
+  };
 
-  // Unbounded: the whole value with the cursor block over the cursor character.
-  if (width == null) {
-    return <Text>{value.slice(0, c) + blockOver(value.slice(c, c + 1)) + value.slice(c + 1)}</Text>;
-  }
-
-  // Bounded: a horizontal-scroll window of `width` columns that holds the cursor.
-  // It is anchored toward the right edge, so typing at the end keeps the tail
-  // visible and the head scrolls in as the cursor moves left into it. The cursor
-  // cell plus the chars before it never exceed `width`, so the line can't wrap.
-  const w = Math.max(1, width);
-  const start = Math.max(0, c - (w - 1));
-  const head = value.slice(start, c);
-  const tail = value.slice(c + 1, start + w);
-  return <Text>{head + blockOver(value.slice(c, c + 1)) + tail}</Text>;
+  return (
+    <Show
+      when={props.focused}
+      fallback={
+        <Show
+          when={props.value === "" && props.placeholder !== undefined}
+          fallback={<text>{shown()}</text>}
+        >
+          <text attributes={TextAttributes.DIM}>{props.placeholder}</text>
+        </Show>
+      }
+    >
+      <box flexDirection="row">
+        <text>{parts().head}</text>
+        <text attributes={TextAttributes.INVERSE}>{parts().at}</text>
+        <text>{parts().tail}</text>
+      </box>
+    </Show>
+  );
 }
