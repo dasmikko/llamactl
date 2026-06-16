@@ -334,6 +334,16 @@ function parseNum(s: string): number | undefined {
 const FLAG_LABEL_WIDTH = 24;
 
 /**
+ * Truncate a label to `w` columns with a trailing ellipsis. opentui `<text>`
+ * wraps to its box width rather than clipping, so a long flag name (e.g.
+ * `--control-vector-layer-range`) would spill onto a second line and break the
+ * row alignment; truncating keeps every label a single line.
+ */
+function fitLabel(s: string, w: number): string {
+  return s.length > w ? s.slice(0, Math.max(0, w - 1)) + "…" : s;
+}
+
+/**
  * A single focusable row, unifying the curated fields with the generic
  * "all flags" list so one focus index + window walks the whole editor:
  * - `field`  — a curated `FieldDef` (existing typed editors)
@@ -728,7 +738,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
       <box flexDirection="row">
         <box width={13} flexDirection="row">
           <text fg={focused ? C.accent : undefined}>
-            {(focused ? "› " : "  ") + f.label}
+            {fitLabel((focused ? "› " : "  ") + f.label, 13)}
           </text>
         </box>
         <CursorText
@@ -749,7 +759,9 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
       <box flexDirection="row">
         {/* wrap="truncate-end" dropped: relies on the width={FLAG_LABEL_WIDTH} box. */}
         <box width={FLAG_LABEL_WIDTH} flexDirection="row" overflow="hidden">
-          <text fg={focused ? C.accent : undefined}>{label}</text>
+          {/* Truncate two columns short of the box so there's always a gap before
+              the value, even for a flag name that fills the column. */}
+          <text fg={focused ? C.accent : undefined}>{fitLabel(label, FLAG_LABEL_WIDTH - 2)}</text>
         </box>
         <Show
           when={flag.takesValue}
@@ -847,9 +859,13 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
       backgroundColor={C.surface}
       paddingX={1}
       width={props.availableWidth}
+      height={props.availableHeight}
     >
       <text attributes={TextAttributes.BOLD}>{props.title}</text>
-      <box flexDirection="row">
+      {/* The field/info area flexes and clips, so the estimate + footer below it
+          stay pinned to the bottom of the panel even if a windowed row renders
+          more than one line (e.g. the multi-line "all flags" search row). */}
+      <box flexDirection="row" flexGrow={1} overflow="hidden">
         {form}
         <Show when={showInfo()}>
           <box

@@ -406,9 +406,14 @@ function App(props: AppProps): JSX.Element {
     );
   };
   const catalogCapacity = (): number => {
-    const downloadsLines = st.downloads.length > 0 ? 1 + Math.min(5, st.downloads.length) + 1 : 0;
-    const activeLines = 1 + 1 + Math.max(1, runningRows().length);
-    const favoriteLines = favoriteRows().length > 0 ? 1 + 1 + 1 + favoriteRows().length : 0;
+    // Each section table is wrapped in a border (top line carries its title,
+    // plus a bottom line) over a column header. So a section's non-row height is
+    // border-top(1) + column-header(1) + border-bottom(1) = 3. Sections sit
+    // directly adjacent (no margins). Downloads is borderless: title(1) + rows.
+    const downloadsLines = st.downloads.length > 0 ? 1 + Math.min(5, st.downloads.length) : 0;
+    const activeLines = 3 + Math.max(1, runningRows().length);
+    const favoriteLines = favoriteRows().length > 0 ? 3 + favoriteRows().length : 0;
+    // MODELS chrome = border-top(1) + column-header(1) + border-bottom(1) = 3.
     return Math.max(
       1,
       screenRows() - headerLines() - downloadsLines - activeLines - favoriteLines - 3 - 1,
@@ -451,9 +456,7 @@ function App(props: AppProps): JSX.Element {
             fallback={
               <>
                 <Show when={st.downloads.length > 0}>
-                  <box marginBottom={1}>
-                    <Downloads downloads={st.downloads} />
-                  </box>
+                  <Downloads downloads={st.downloads} />
                 </Show>
                 <Table
                   title="ACTIVE INSTANCES"
@@ -465,25 +468,23 @@ function App(props: AppProps): JSX.Element {
                   width={columns()}
                 />
                 <Show when={favoriteRows().length > 0}>
-                  <box marginTop={1}>
-                    <Table
-                      title="★ FAVORITES"
-                      titleColor={C.favorite}
-                      variant="catalog"
-                      rows={favoriteRows()}
-                      selectedIndex={
-                        selIdx() >= runningRows().length &&
-                        selIdx() < runningRows().length + favoriteRows().length
-                          ? selIdx() - runningRows().length
-                          : -1
-                      }
-                      gpuAvailable={gpuAvailable()}
-                      now={now()}
-                      width={columns()}
-                    />
-                  </box>
+                  <Table
+                    title="★ FAVORITES"
+                    titleColor={C.favorite}
+                    variant="catalog"
+                    rows={favoriteRows()}
+                    selectedIndex={
+                      selIdx() >= runningRows().length &&
+                      selIdx() < runningRows().length + favoriteRows().length
+                        ? selIdx() - runningRows().length
+                        : -1
+                    }
+                    gpuAvailable={gpuAvailable()}
+                    now={now()}
+                    width={columns()}
+                  />
                 </Show>
-                <box marginTop={1} flexGrow={1}>
+                <box flexGrow={1}>
                   <Table
                     title="MODELS"
                     variant="catalog"

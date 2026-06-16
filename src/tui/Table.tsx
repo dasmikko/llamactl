@@ -198,7 +198,9 @@ export function Table(props: TableProps): JSX.Element {
   // those back to keep the row total exactly `width`.
   const cols = (): ColumnDef[] => {
     const base = baseCols();
-    const width = props.width;
+    // The section is wrapped in a 1-cell border on each side, so the row content
+    // is `width - 2` to fit inside it.
+    const width = props.width == null ? undefined : props.width - 2;
     if (!width) return base;
     const others = base.reduce((s, c) => (c.header === "NAME" ? s : s + c.width), 0);
     const seps = base.length - 1;
@@ -250,19 +252,23 @@ export function Table(props: TableProps): JSX.Element {
 
   const repoLabel = (r: Row): string => r.repo ?? NO_REPO_LABEL;
   const clamp = (s: string): string => {
-    const width = props.width;
+    const width = props.width == null ? undefined : props.width - 2;
     return width && s.length > width ? s.slice(0, width - 1) + "…" : s;
   };
 
-  // The chrome (title + column header + empty placeholder) wraps whichever body
-  // the grouped/flat branches build.
+  // The chrome wraps the section in a rounded border with its name set into the
+  // top border, over a column header and whichever body the grouped/flat branches
+  // build.
   const chrome = (body: JSX.Element): JSX.Element => (
-    <box flexDirection="column" flexGrow={fill() ? 1 : 0}>
-      <Show when={props.title}>
-        <text fg={titleColor()} attributes={TextAttributes.BOLD}>
-          {props.title}
-        </text>
-      </Show>
+    <box
+      flexDirection="column"
+      flexGrow={fill() ? 1 : 0}
+      border
+      borderStyle="rounded"
+      borderColor={C.border}
+      title={props.title}
+      titleColor={titleColor()}
+    >
       <text fg={C.muted} attributes={TextAttributes.BOLD}>
         {headerLine()}
       </text>

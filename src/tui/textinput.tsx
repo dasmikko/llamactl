@@ -88,12 +88,14 @@ export interface CursorTextProps {
  * columns, keeping the cursor visible.
  */
 export function CursorText(props: CursorTextProps) {
-  const clampCursor = (): number => Math.max(0, Math.min(props.cursor, props.value.length));
+  // Tolerate an undefined value (an unset field) — treat it as empty.
+  const val = (): string => props.value ?? "";
+  const clampCursor = (): number => Math.max(0, Math.min(props.cursor, val().length));
 
   // The (head, cursorChar, tail) split for the focused block cursor, honoring
   // the optional horizontal-scroll window.
   const parts = (): { head: string; at: string; tail: string } => {
-    const value = props.value;
+    const value = val();
     const c = clampCursor();
     if (props.width == null) {
       return { head: value.slice(0, c), at: value.slice(c, c + 1) || " ", tail: value.slice(c + 1) };
@@ -111,7 +113,7 @@ export function CursorText(props: CursorTextProps) {
 
   // Unfocused tail-visible slice (no wrap, no "…").
   const shown = (): string => {
-    const value = props.value;
+    const value = val();
     return props.width != null && value.length > props.width
       ? value.slice(value.length - props.width)
       : value;
