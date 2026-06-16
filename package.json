@@ -1,6 +1,6 @@
 {
   "name": "llamactl",
-  "version": "0.10.0",
+  "version": "0.20.0",
   "description": "A terminal UI for managing local llama.cpp (llama-server) instances.",
   "type": "module",
   "module": "src/index.ts",
