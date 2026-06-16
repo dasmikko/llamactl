@@ -54,7 +54,7 @@ export function Filter(props: FilterProps) {
         focused
         width={Math.max(8, props.columns - 30)}
       />
-      <text>{"  "}</text>
+      <text fg={C.text}>{"  "}</text>
       <ShortcutBar
         items={[
           { key: "Enter", desc: "confirm" },

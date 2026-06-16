@@ -920,7 +920,7 @@ function DownloadsView(props: {
       <box marginTop={1} flexDirection="column">
         <Show
           when={props.downloads.length > 0}
-          fallback={<text attributes={TextAttributes.DIM}>(no downloads — press p to pull a model)</text>}
+          fallback={<text fg={C.text} attributes={TextAttributes.DIM}>(no downloads — press p to pull a model)</text>}
         >
           <Downloads downloads={props.downloads} selectedIndex={selIdx()} showHeader={false} />
         </Show>
@@ -1063,6 +1063,12 @@ export async function runTui(config: Config): Promise<void> {
   await new Promise<void>((resolve) => {
     // opentui destroys the renderer on Ctrl+C / SIGINT itself; onDestroy fires
     // for that and for our explicit renderer.destroy() ('q'), letting us resolve.
-    void render(() => <App config={config} />, { onDestroy: () => resolve() } as never);
+    // Pin the renderer's base background to our theme so compositing never
+    // depends on the terminal's OSC-detected background — that detection is
+    // unreliable over SSH/tmux. (Text colors are likewise pinned per-<text>.)
+    void render(() => <App config={config} />, {
+      backgroundColor: C.bg,
+      onDestroy: () => resolve(),
+    } as never);
   });
 }

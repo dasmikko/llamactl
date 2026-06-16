@@ -153,12 +153,12 @@ export function LogViewer(props: LogViewerProps) {
       paddingX={1}
       flexGrow={1}
     >
-      <text attributes={TextAttributes.BOLD}>Logs · {props.title}</text>
+      <text fg={C.text} attributes={TextAttributes.BOLD}>Logs · {props.title}</text>
       {/* wrap="truncate" dropped: parent box width bounds the line. */}
-      <text attributes={TextAttributes.DIM}>{props.logPath}</text>
+      <text fg={C.text} attributes={TextAttributes.DIM}>{props.logPath}</text>
       <box flexDirection="column" marginTop={1}>
         <Show when={notice()}>
-          <text attributes={TextAttributes.DIM}>{notice()}</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>{notice()}</text>
         </Show>
         <For each={visible()}>
           {(line) => (
@@ -166,7 +166,7 @@ export function LogViewer(props: LogViewerProps) {
             // wrap="truncate" dropped: parent box width keeps each line to one row.
             // sanitize strips carriage returns / ANSI so build progress output
             // doesn't corrupt the terminal layout.
-            <text>{sanitizeLogLine(line)}</text>
+            <text fg={C.text}>{sanitizeLogLine(line)}</text>
           )}
         </For>
       </box>
@@ -177,7 +177,7 @@ export function LogViewer(props: LogViewerProps) {
             fallback={
               <box flexDirection="row">
                 <text fg={C.warning}>SCROLLED UP{"  "}</text>
-                <text attributes={TextAttributes.DIM}>
+                <text fg={C.text} attributes={TextAttributes.DIM}>
                   {lines().length - visibleCount() - scrollOffset() + 1}–{lines().length - scrollOffset()} of{" "}
                   {lines().length}
                   {"  "}

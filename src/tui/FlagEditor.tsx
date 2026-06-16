@@ -797,7 +797,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
                   fallback={
                     // Search row, headed by an "all flags" divider.
                     <box flexDirection="column">
-                      <text attributes={TextAttributes.DIM}>
+                      <text fg={C.text} attributes={TextAttributes.DIM}>
                         {`── all flags${
                           props.flagsSpec?.version ? ` · llama-server ${props.flagsSpec.version}` : ""
                         } ──`}
@@ -817,7 +817,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
                         />
                       </box>
                       <Show when={generic().length === 0}>
-                        <text attributes={TextAttributes.DIM}>
+                        <text fg={C.text} attributes={TextAttributes.DIM}>
                           {"  " +
                             (genericTotal() > 0
                               ? "no flags match the filter"
@@ -841,7 +841,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
         }}
       </For>
       <Show when={scrolling()}>
-        <text attributes={TextAttributes.DIM}>
+        <text fg={C.text} attributes={TextAttributes.DIM}>
           {(hiddenAbove() > 0 ? `↑ ${hiddenAbove()} more` : "") +
             (hiddenAbove() > 0 && hiddenBelow() > 0 ? "   " : "") +
             (hiddenBelow() > 0 ? `↓ ${hiddenBelow()} more` : "")}
@@ -861,7 +861,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
       width={props.availableWidth}
       height={props.availableHeight}
     >
-      <text attributes={TextAttributes.BOLD}>{props.title}</text>
+      <text fg={C.text} attributes={TextAttributes.BOLD}>{props.title}</text>
       {/* The field/info area flexes and clips, so the estimate + footer below it
           stay pinned to the bottom of the panel even if a windowed row renders
           more than one line (e.g. the multi-line "all flags" search row). */}
@@ -887,9 +887,9 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
                       <text fg={C.accent} attributes={TextAttributes.BOLD}>
                         All flags
                       </text>
-                      <text attributes={TextAttributes.DIM}>llama-server --help</text>
+                      <text fg={C.text} attributes={TextAttributes.DIM}>llama-server --help</text>
                       <box marginTop={1} flexDirection="row">
-                        <text>
+                        <text fg={C.text}>
                           Every flag the active binary accepts, beyond the curated fields above. Type
                           to filter; ↑↓ to move; ←/→ or space toggles a switch.
                         </text>
@@ -904,19 +904,19 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
                         <text fg={C.accent} attributes={TextAttributes.BOLD}>
                           {fi.flag.flag + (fi.flag.short ? `, ${fi.flag.short}` : "")}
                         </text>
-                        <text attributes={TextAttributes.DIM}>
+                        <text fg={C.text} attributes={TextAttributes.DIM}>
                           {fi.flag.takesValue
                             ? `takes a value${fi.flag.valueHint ? `: ${fi.flag.valueHint}` : ""}`
                             : "on/off switch (←/→ or space)"}
                         </text>
                         <Show when={fi.flag.help}>
                           <box marginTop={1} flexDirection="row">
-                            <text>{fi.flag.help}</text>
+                            <text fg={C.text}>{fi.flag.help}</text>
                           </box>
                         </Show>
                         <Show when={fi.flag.default}>
                           <box marginTop={1} flexDirection="row">
-                            <text attributes={TextAttributes.DIM}>{`default: ${fi.flag.default}`}</text>
+                            <text fg={C.text} attributes={TextAttributes.DIM}>{`default: ${fi.flag.default}`}</text>
                           </box>
                         </Show>
                       </>
@@ -933,13 +933,13 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
                     <text fg={C.accent} attributes={TextAttributes.BOLD}>
                       {fi.field.label}
                     </text>
-                    <text attributes={TextAttributes.DIM}>{fInfo.flag}</text>
+                    <text fg={C.text} attributes={TextAttributes.DIM}>{fInfo.flag}</text>
                     <box marginTop={1} flexDirection="row">
-                      <text>{fInfo.desc}</text>
+                      <text fg={C.text}>{fInfo.desc}</text>
                     </box>
                     <Show when={fInfo.note}>
                       <box marginTop={1} flexDirection="row">
-                        <text attributes={TextAttributes.DIM}>{fInfo.note}</text>
+                        <text fg={C.text} attributes={TextAttributes.DIM}>{fInfo.note}</text>
                       </box>
                     </Show>
                   </>
@@ -953,7 +953,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
         <Show
           when={estimate()}
           fallback={
-            <text attributes={TextAttributes.DIM}>≈ estimate unavailable (model not found)</text>
+            <text fg={C.text} attributes={TextAttributes.DIM}>≈ estimate unavailable (model not found)</text>
           }
         >
           {/* wrap="truncate-end" dropped: clipped by the parent box width. The
@@ -963,17 +963,17 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
             when={gpuAvailable()}
             fallback={
               <>
-                <text attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.ramBytes)}</text>
-                <text attributes={TextAttributes.DIM}> RAM (CPU-only — no GPU)</text>
+                <text fg={C.text} attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.ramBytes)}</text>
+                <text fg={C.text} attributes={TextAttributes.DIM}> RAM (CPU-only — no GPU)</text>
               </>
             }
           >
-            <text attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.vramBytes)}</text>
-            <text attributes={TextAttributes.DIM}> VRAM · </text>
-            <text attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.ramBytes)}</text>
-            <text attributes={TextAttributes.DIM}> RAM</text>
+            <text fg={C.text} attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.vramBytes)}</text>
+            <text fg={C.text} attributes={TextAttributes.DIM}> VRAM · </text>
+            <text fg={C.text} attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.ramBytes)}</text>
+            <text fg={C.text} attributes={TextAttributes.DIM}> RAM</text>
           </Show>
-          <text attributes={TextAttributes.DIM}>
+          <text fg={C.text} attributes={TextAttributes.DIM}>
             {`   (weights ${humanBytes(props.model!.sizeBytes)} · KV ${
               estimate()!.kvUnknown ? "n/a" : humanBytes(estimate()!.kvBytes)
             })`}
@@ -988,7 +988,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
         </Show>
       </box>
       <box flexDirection="row">
-        <text attributes={TextAttributes.DIM}>Tab/↑↓ move · ←/→ adjust · Enter save · Esc cancel</text>
+        <text fg={C.text} attributes={TextAttributes.DIM}>Tab/↑↓ move · ←/→ adjust · Enter save · Esc cancel</text>
       </box>
     </box>
   );

@@ -59,7 +59,7 @@ export function Downloads(props: DownloadsProps): JSX.Element {
               <box flexDirection="row">
                 <Show when={managed()}>
                   <box width={2}>
-                    <text>{selected() ? "›" : " "}</text>
+                    <text fg={C.text}>{selected() ? "›" : " "}</text>
                   </box>
                 </Show>
                 <box width={36}>
@@ -70,7 +70,7 @@ export function Downloads(props: DownloadsProps): JSX.Element {
                 <text fg={statusColor(d.status)}>
                   {bar(d.receivedBytes, d.totalBytes ?? 0, GAUGE_WIDTH)}
                 </text>
-                <text>
+                <text fg={C.text}>
                   {" "}
                   {d.status === "downloading" ? pct(frac * 100) : d.status}
                   {"  " + size}

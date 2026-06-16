@@ -273,7 +273,7 @@ export function Table(props: TableProps): JSX.Element {
         {headerLine()}
       </text>
       <Show when={props.rows.length === 0} fallback={body}>
-        <text attributes={TextAttributes.DIM}>{emptyText()}</text>
+        <text fg={C.text} attributes={TextAttributes.DIM}>{emptyText()}</text>
       </Show>
     </box>
   );
@@ -354,7 +354,7 @@ export function Table(props: TableProps): JSX.Element {
         }
       </For>
       <Show when={groupedView().scrolling}>
-        <text attributes={TextAttributes.DIM}>
+        <text fg={C.text} attributes={TextAttributes.DIM}>
           {moreLine(groupedView().hiddenAbove, groupedView().hiddenBelow)}
         </text>
       </Show>
@@ -382,7 +382,7 @@ export function Table(props: TableProps): JSX.Element {
     <>
       <For each={flatView().visible}>{(row, i) => renderRow(row, flatView().start + i())}</For>
       <Show when={flatView().scrolling}>
-        <text attributes={TextAttributes.DIM}>
+        <text fg={C.text} attributes={TextAttributes.DIM}>
           {moreLine(flatView().hiddenAbove, flatView().hiddenBelow)}
         </text>
       </Show>

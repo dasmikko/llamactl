@@ -70,29 +70,29 @@ export function Installs(props: InstallsProps): JSX.Element {
 
       <box flexDirection="row">
         <box width={2}>
-          <text> </text>
+          <text fg={C.text}> </text>
         </box>
         <box width={22}>
-          <text attributes={TextAttributes.DIM}>NAME</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>NAME</text>
         </box>
         <box width={16}>
-          <text attributes={TextAttributes.DIM}>REF</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>REF</text>
         </box>
         <box width={7}>
-          <text attributes={TextAttributes.DIM}>BACKEND</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>BACKEND</text>
         </box>
         <box width={16}>
-          <text attributes={TextAttributes.DIM}>VERSION</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>VERSION</text>
         </box>
         <box width={10}>
-          <text attributes={TextAttributes.DIM}>SIZE</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>SIZE</text>
         </box>
       </box>
 
       <Show
         when={props.installs.length > 0}
         fallback={
-          <text attributes={TextAttributes.DIM}>(no managed installs — press n to build one)</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>(no managed installs — press n to build one)</text>
         }
       >
         <For each={props.installs}>
@@ -111,19 +111,19 @@ export function Installs(props: InstallsProps): JSX.Element {
                   </text>
                 </box>
                 <box width={16}>
-                  <text>{ins.ref}</text>
+                  <text fg={C.text}>{ins.ref}</text>
                 </box>
                 <box width={7}>
-                  <text>{ins.backend}</text>
+                  <text fg={C.text}>{ins.backend}</text>
                 </box>
                 <box width={16}>
-                  <text>{ins.version ?? "—"}</text>
+                  <text fg={C.text}>{ins.version ?? "—"}</text>
                 </box>
                 <box width={10}>
-                  <text>{ins.sizeBytes != null ? humanBytes(ins.sizeBytes) : "—"}</text>
+                  <text fg={C.text}>{ins.sizeBytes != null ? humanBytes(ins.sizeBytes) : "—"}</text>
                 </box>
                 <Show when={active()}>
-                  <text attributes={TextAttributes.DIM}> (active)</text>
+                  <text fg={C.text} attributes={TextAttributes.DIM}> (active)</text>
                 </Show>
               </box>
             );

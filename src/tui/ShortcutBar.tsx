@@ -25,7 +25,7 @@ export function ShortcutBar(props: { items: Shortcut[] }) {
         {(it, i) => (
           <>
             <Show when={i() > 0}>
-              <text attributes={TextAttributes.DIM}>{" · "}</text>
+              <text fg={C.text} attributes={TextAttributes.DIM}>{" · "}</text>
             </Show>
             <text fg={C.accent} attributes={TextAttributes.BOLD}>
               {it.key}

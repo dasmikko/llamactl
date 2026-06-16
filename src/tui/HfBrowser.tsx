@@ -174,7 +174,7 @@ export function HfBrowser(props: HfBrowserProps): JSX.Element {
         </box>
       </Show>
       <Show when={busy()}>
-        <text attributes={TextAttributes.DIM}>working…</text>
+        <text fg={C.text} attributes={TextAttributes.DIM}>working…</text>
       </Show>
 
       <Show when={stage() === "search"}>
@@ -182,7 +182,7 @@ export function HfBrowser(props: HfBrowserProps): JSX.Element {
           {/* Hint on its own line: keeping it off the input row leaves the value
               the full width, so the cursor never gets pushed onto a new line. */}
           <box flexDirection="row">
-            <text>search: </text>
+            <text fg={C.text}>search: </text>
             <CursorText
               value={search().value}
               cursor={search().cursor}
@@ -190,14 +190,14 @@ export function HfBrowser(props: HfBrowserProps): JSX.Element {
               width={Math.max(8, props.columns - 4 - 8 - 1)}
             />
           </box>
-          <text attributes={TextAttributes.DIM}>(Enter to search, Esc to close)</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>(Enter to search, Esc to close)</text>
         </box>
       </Show>
 
       <Show when={stage() === "results"}>
         <Show
           when={repos().length > 0}
-          fallback={<text attributes={TextAttributes.DIM}>no repos found — Esc to edit the query</text>}
+          fallback={<text fg={C.text} attributes={TextAttributes.DIM}>no repos found — Esc to edit the query</text>}
         >
           <For each={windowed(repos(), repoIdx()).slice}>
             {(r, j) => {
@@ -212,7 +212,7 @@ export function HfBrowser(props: HfBrowserProps): JSX.Element {
             }}
           </For>
           <Show when={repos().length > MAX_ROWS}>
-            <text attributes={TextAttributes.DIM}>{`  ${repoIdx() + 1}/${repos().length}`}</text>
+            <text fg={C.text} attributes={TextAttributes.DIM}>{`  ${repoIdx() + 1}/${repos().length}`}</text>
           </Show>
         </Show>
       </Show>
@@ -220,7 +220,7 @@ export function HfBrowser(props: HfBrowserProps): JSX.Element {
       <Show when={stage() === "files"}>
         <Show
           when={files().length > 0}
-          fallback={<text attributes={TextAttributes.DIM}>no GGUF files in this repo — Esc to go back</text>}
+          fallback={<text fg={C.text} attributes={TextAttributes.DIM}>no GGUF files in this repo — Esc to go back</text>}
         >
           <For each={windowed(files(), fileIdx()).slice}>
             {(f, j) => {
@@ -235,7 +235,7 @@ export function HfBrowser(props: HfBrowserProps): JSX.Element {
             }}
           </For>
           <Show when={files().length > MAX_ROWS}>
-            <text attributes={TextAttributes.DIM}>{`  ${fileIdx() + 1}/${files().length}`}</text>
+            <text fg={C.text} attributes={TextAttributes.DIM}>{`  ${fileIdx() + 1}/${files().length}`}</text>
           </Show>
         </Show>
       </Show>

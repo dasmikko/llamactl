@@ -81,21 +81,21 @@ export function ResourceHeader(props: ResourceHeaderProps) {
     <box flexDirection="column">
       <box flexDirection="row">
         <box width={6}>
-          <text>CPU</text>
+          <text fg={C.text}>CPU</text>
         </box>
         <text fg={C.accent}>{bar(cpu(), 100, GAUGE_WIDTH)}</text>
-        <text> {pct(cpu())}</text>
+        <text fg={C.text}> {pct(cpu())}</text>
         <Show when={sys()?.tempC != null}>
-          <text>{`  ${sys()!.tempC}°C`}</text>
+          <text fg={C.text}>{`  ${sys()!.tempC}°C`}</text>
         </Show>
       </box>
 
       <box flexDirection="row">
         <box width={6}>
-          <text>RAM</text>
+          <text fg={C.text}>RAM</text>
         </box>
         <text fg={C.accent}>{bar(memUsed(), memTotal(), GAUGE_WIDTH)}</text>
-        <text>
+        <text fg={C.text}>
           {" "}
           {humanBytes(memUsed())} / {humanBytes(memTotal())}
         </text>
@@ -109,10 +109,10 @@ export function ResourceHeader(props: ResourceHeaderProps) {
               <>
                 <box flexDirection="row">
                   <box width={6}>
-                    <text>GPU{g.index}</text>
+                    <text fg={C.text}>GPU{g.index}</text>
                   </box>
                   <text fg={C.accent2}>{bar(clamp100(g.utilPct), 100, GAUGE_WIDTH)}</text>
-                  <text>
+                  <text fg={C.text}>
                     {" "}
                     {pct(g.utilPct)}
                     {g.tempC != null ? `  ${g.tempC}°C` : ""} {g.name}
@@ -120,10 +120,10 @@ export function ResourceHeader(props: ResourceHeaderProps) {
                 </box>
                 <box flexDirection="row">
                   <box width={6}>
-                    <text>{vramLabel}</text>
+                    <text fg={C.text}>{vramLabel}</text>
                   </box>
                   <text fg={C.info}>{bar(g.vramUsed, g.vramTotal, GAUGE_WIDTH)}</text>
-                  <text>
+                  <text fg={C.text}>
                     {" "}
                     {humanBytes(g.vramUsed)} / {humanBytes(g.vramTotal)}
                   </text>
@@ -140,7 +140,7 @@ export function ResourceHeader(props: ResourceHeaderProps) {
     <box flexDirection="column" border borderStyle="rounded" borderColor={C.border} paddingX={1}>
       <box flexDirection="row">
         <text fg={C.accent} attributes={TextAttributes.BOLD}>🦙 llamactl</text>
-        <text>{"  "}</text>
+        <text fg={C.text}>{"  "}</text>
         <Show
           when={props.connected}
           fallback={<text fg={C.warning}>○ connecting…</text>}
@@ -148,7 +148,7 @@ export function ResourceHeader(props: ResourceHeaderProps) {
           <text fg={C.success}>● connected to daemon</text>
         </Show>
         <Show when={props.llamaServer?.found && props.llamaServer.version}>
-          <text attributes={TextAttributes.DIM}>{`  llama-server ${props.llamaServer!.version}`}</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>{`  llama-server ${props.llamaServer!.version}`}</text>
         </Show>
         <Show when={props.activeInstallName}>
           <text fg={C.accent}>{`  ▸ ${props.activeInstallName}`}</text>
@@ -171,9 +171,9 @@ export function ResourceHeader(props: ResourceHeaderProps) {
               {([label, value]) => (
                 <box flexDirection="row">
                   <box width={11}>
-                    <text attributes={TextAttributes.DIM}>{label}</text>
+                    <text fg={C.text} attributes={TextAttributes.DIM}>{label}</text>
                   </box>
-                  <text>{value}</text>
+                  <text fg={C.text}>{value}</text>
                 </box>
               )}
             </For>

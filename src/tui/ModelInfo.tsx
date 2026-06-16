@@ -52,9 +52,9 @@ function Field(props: { label: string; value: string }): JSX.Element {
   return (
     <box flexDirection="row">
       <box width={16}>
-        <text attributes={TextAttributes.DIM}>{props.label}</text>
+        <text fg={C.text} attributes={TextAttributes.DIM}>{props.label}</text>
       </box>
-      <text>{props.value}</text>
+      <text fg={C.text}>{props.value}</text>
     </box>
   );
 }
@@ -78,7 +78,7 @@ export function ModelInfo(props: ModelInfoProps) {
         {props.row.name}
       </text>
       <Show when={repo()}>
-        <text attributes={TextAttributes.DIM}>{`huggingface.co/${repo()}  (press h to open)`}</text>
+        <text fg={C.text} attributes={TextAttributes.DIM}>{`huggingface.co/${repo()}  (press h to open)`}</text>
       </Show>
 
       <box marginTop={1} flexDirection="column">
@@ -95,7 +95,7 @@ export function ModelInfo(props: ModelInfoProps) {
 
       <Show when={running()}>
         <box marginTop={1} flexDirection="column">
-          <text attributes={TextAttributes.BOLD}>Running</text>
+          <text fg={C.text} attributes={TextAttributes.BOLD}>Running</text>
           <Field label="Status" value={running()!.status} />
           <Field label="Endpoint" value={`http://127.0.0.1:${running()!.port}`} />
           <Field label="PID" value={String(running()!.pid)} />
@@ -112,7 +112,7 @@ export function ModelInfo(props: ModelInfoProps) {
       </Show>
 
       <box marginTop={1} flexDirection="column">
-        <text attributes={TextAttributes.BOLD}>
+        <text fg={C.text} attributes={TextAttributes.BOLD}>
           {running()
             ? "Launched with"
             : instance()
@@ -127,7 +127,7 @@ export function ModelInfo(props: ModelInfoProps) {
             <Show
               when={profiles().length > 0}
               fallback={
-                <text attributes={TextAttributes.DIM}>
+                <text fg={C.text} attributes={TextAttributes.DIM}>
                   {"  (no saved profile — uses defaults; press e to manage)"}
                 </text>
               }
@@ -138,7 +138,7 @@ export function ModelInfo(props: ModelInfoProps) {
                   <box flexDirection="column">
                     <text fg={C.group}>{`  ${p.name}`}</text>
                     <For each={specLines(p.spec)}>
-                      {(l) => <text attributes={TextAttributes.DIM}>{"    " + l}</text>}
+                      {(l) => <text fg={C.text} attributes={TextAttributes.DIM}>{"    " + l}</text>}
                     </For>
                   </box>
                 )}
@@ -148,7 +148,7 @@ export function ModelInfo(props: ModelInfoProps) {
         >
           {/* A running child or an orphan profile row → one resolved spec. */}
           <For each={specLines(spec()!)}>
-            {(l) => <text attributes={TextAttributes.DIM}>{"  " + l}</text>}
+            {(l) => <text fg={C.text} attributes={TextAttributes.DIM}>{"  " + l}</text>}
           </For>
         </Show>
       </box>

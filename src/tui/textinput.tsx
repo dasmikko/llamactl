@@ -9,6 +9,7 @@
 
 import { Show } from "solid-js";
 import { TextAttributes, type KeyEvent } from "@opentui/core";
+import { C } from "./theme.ts";
 
 export interface TextEdit {
   value: string;
@@ -125,16 +126,16 @@ export function CursorText(props: CursorTextProps) {
       fallback={
         <Show
           when={props.value === "" && props.placeholder !== undefined}
-          fallback={<text>{shown()}</text>}
+          fallback={<text fg={C.text}>{shown()}</text>}
         >
-          <text attributes={TextAttributes.DIM}>{props.placeholder}</text>
+          <text fg={C.text} attributes={TextAttributes.DIM}>{props.placeholder}</text>
         </Show>
       }
     >
       <box flexDirection="row">
-        <text>{parts().head}</text>
-        <text attributes={TextAttributes.INVERSE}>{parts().at}</text>
-        <text>{parts().tail}</text>
+        <text fg={C.text}>{parts().head}</text>
+        <text fg={C.text} attributes={TextAttributes.INVERSE}>{parts().at}</text>
+        <text fg={C.text}>{parts().tail}</text>
       </box>
     </Show>
   );

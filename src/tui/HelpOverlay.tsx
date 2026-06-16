@@ -47,7 +47,7 @@ export function HelpOverlay(): JSX.Element {
       backgroundColor={C.surface}
       paddingX={1}
     >
-      <text attributes={TextAttributes.BOLD}>Keybindings</text>
+      <text fg={C.text} attributes={TextAttributes.BOLD}>Keybindings</text>
       <box flexDirection="column" marginTop={1}>
         <For each={BINDINGS}>
           {(b) => (
@@ -55,13 +55,13 @@ export function HelpOverlay(): JSX.Element {
               <box width={14}>
                 <text fg={C.accent}>{b.keys}</text>
               </box>
-              <text>{b.desc}</text>
+              <text fg={C.text}>{b.desc}</text>
             </box>
           )}
         </For>
       </box>
       <box flexDirection="row" marginTop={1}>
-        <text attributes={TextAttributes.DIM}>Esc or ? to close</text>
+        <text fg={C.text} attributes={TextAttributes.DIM}>Esc or ? to close</text>
       </box>
     </box>
   );
