@@ -1,18 +1,20 @@
 /**
  * Modal form to edit a LaunchSpec (plus an instance name). Hand-rolled
- * controlled inputs via useInput — no ink-text-input dependency. Tab/↑/↓ move
+ * controlled inputs via useKeyboard — no text-input dependency. Tab/↑/↓ move
  * between fields, typing edits text fields, ←/→ adjust the choosers (ctx size,
  * cache types, flash attn), Enter submits, Esc cancels.
  */
 
-import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { createSignal, createMemo, For, Show, type JSX } from "solid-js";
+import { useKeyboard } from "@opentui/solid";
+import { TextAttributes } from "@opentui/core";
 import type { LaunchSpec, LlamaFlag, LlamaServerSpec, Model } from "../types.ts";
 import { CACHE_TYPES, CURATED_FLAGS } from "../instances/spec.ts";
 import { estimateUsage } from "../instances/estimate.ts";
 import { humanBytes } from "./format.ts";
 import { windowSlice } from "./Table.tsx";
 import { editText, CursorText } from "./textinput.tsx";
+import { C } from "./theme.ts";
 
 export interface FlagEditorResult {
   name: string | undefined;
@@ -358,107 +360,103 @@ function genericFlags(spec: LlamaServerSpec | undefined, query: string): LlamaFl
   });
 }
 
-export function FlagEditor({
-  title,
-  initialName,
-  showName = true,
-  initialSpec,
-  onSubmit,
-  onCancel,
-  availableHeight,
-  availableWidth,
-  model,
-  gpuAvailable = true,
-  actual,
-  flagsSpec,
-}: FlagEditorProps): React.ReactElement {
+export function FlagEditor(props: FlagEditorProps): JSX.Element {
+  const showName = (): boolean => props.showName ?? true;
+  const gpuAvailable = (): boolean => props.gpuAvailable ?? true;
+
   // Drop the Name row when editing a model's inline flags so it isn't in the
   // tab order; all field navigation below indexes into this list.
-  const fields = showName ? FIELDS : FIELDS.filter((f) => f.id !== "name");
-  const [values, setValues] = useState<TextValues>({
-    name: initialName,
-    model: initialSpec.model,
-    alias: initialSpec.alias ?? "",
-    gpuLayers: numStr(initialSpec.gpuLayers),
-    nCpuMoe: numStr(initialSpec.nCpuMoe),
-    threads: numStr(initialSpec.threads),
-    batchSize: numStr(initialSpec.batchSize),
-    ubatchSize: numStr(initialSpec.ubatchSize),
-    parallel: numStr(initialSpec.parallel),
-    mmproj: initialSpec.mmproj ?? "",
-    chatTemplate: initialSpec.chatTemplate ?? "",
-    host: initialSpec.host ?? "",
-    port: numStr(initialSpec.port),
-    extraArgs: (initialSpec.extraArgs ?? []).join(" "),
+  const fields = createMemo<FieldDef[]>(() =>
+    showName() ? FIELDS : FIELDS.filter((f) => f.id !== "name"),
+  );
+
+  const [values, setValues] = createSignal<TextValues>({
+    name: props.initialName,
+    model: props.initialSpec.model,
+    alias: props.initialSpec.alias ?? "",
+    gpuLayers: numStr(props.initialSpec.gpuLayers),
+    nCpuMoe: numStr(props.initialSpec.nCpuMoe),
+    threads: numStr(props.initialSpec.threads),
+    batchSize: numStr(props.initialSpec.batchSize),
+    ubatchSize: numStr(props.initialSpec.ubatchSize),
+    parallel: numStr(props.initialSpec.parallel),
+    mmproj: props.initialSpec.mmproj ?? "",
+    chatTemplate: props.initialSpec.chatTemplate ?? "",
+    host: props.initialSpec.host ?? "",
+    port: numStr(props.initialSpec.port),
+    extraArgs: (props.initialSpec.extraArgs ?? []).join(" "),
   });
-  const [focus, setFocus] = useState(0);
+  const [focus, setFocus] = createSignal(0);
   // Cursor within the focused plain-text field; reset to end-of-text on
   // navigation. fields[0] is always "name" (or "model" when the name is hidden).
-  const [cursor, setCursor] = useState(() =>
-    fields[0]?.id === "name" ? initialName.length : initialSpec.model.length,
+  const [cursor, setCursor] = createSignal(
+    fields()[0]?.id === "name" ? props.initialName.length : props.initialSpec.model.length,
   );
   // ctx field: an index into CTX_PRESETS, or CTX_CUSTOM to type a number.
-  const [ctxOpt, setCtxOpt] = useState(() => initialCtxOpt(initialSpec.ctxSize));
-  const [ctxCustom, setCtxCustom] = useState(() => numStr(initialSpec.ctxSize));
+  const [ctxOpt, setCtxOpt] = createSignal(initialCtxOpt(props.initialSpec.ctxSize));
+  const [ctxCustom, setCtxCustom] = createSignal(numStr(props.initialSpec.ctxSize));
   // Enum choosers: an index into each field's ENUM_OPTS (0 = neutral/unset).
-  const [enumOpt, setEnumOpt] = useState<Record<EnumFieldId, number>>(() => ({
-    cacheTypeK: enumIndex("cacheTypeK", initialSpec.cacheTypeK),
-    cacheTypeV: enumIndex("cacheTypeV", initialSpec.cacheTypeV),
-    flashAttn: enumIndex("flashAttn", initialSpec.flashAttn),
-    reasoning: enumIndex("reasoning", initialSpec.reasoning),
-    jinja: enumIndex("jinja", initialSpec.jinja),
-    mlock: enumIndex("mlock", initialSpec.mlock),
-    mmap: enumIndex("mmap", initialSpec.mmap),
-  }));
+  const [enumOpt, setEnumOpt] = createSignal<Record<EnumFieldId, number>>({
+    cacheTypeK: enumIndex("cacheTypeK", props.initialSpec.cacheTypeK),
+    cacheTypeV: enumIndex("cacheTypeV", props.initialSpec.cacheTypeV),
+    flashAttn: enumIndex("flashAttn", props.initialSpec.flashAttn),
+    reasoning: enumIndex("reasoning", props.initialSpec.reasoning),
+    jinja: enumIndex("jinja", props.initialSpec.jinja),
+    mlock: enumIndex("mlock", props.initialSpec.mlock),
+    mmap: enumIndex("mmap", props.initialSpec.mmap),
+  });
   // Generic "all flags" section: a filter query and the edited values. Each value
   // is a string; a boolean switch stores "on" (absent ⇒ off), a value flag stores
   // its text. Seeded from any extraFlags already on the spec (true ⇒ "on").
-  const [flagSearch, setFlagSearch] = useState("");
-  const [extraFlags, setExtraFlags] = useState<Record<string, string>>(() => {
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(initialSpec.extraFlags ?? {})) {
-      out[k] = v === true ? "on" : v;
-    }
-    return out;
-  });
+  const [flagSearch, setFlagSearch] = createSignal("");
+  const [extraFlags, setExtraFlags] = createSignal<Record<string, string>>(
+    (() => {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(props.initialSpec.extraFlags ?? {})) {
+        out[k] = v === true ? "on" : v;
+      }
+      return out;
+    })(),
+  );
 
   // The focusable rows: curated fields, then the "all flags" search box and the
   // filtered generic flag rows. The section is always present so it stays
   // discoverable; when there are no flags the search row explains why (daemon not
   // restarted / binary missing / unparseable). One `focus` index walks them all.
-  const generic = genericFlags(flagsSpec, flagSearch);
-  const genericTotal = genericFlags(flagsSpec, "").length;
-  const navItems: NavItem[] = [
-    ...fields.map((field) => ({ kind: "field", field }) as NavItem),
+  const generic = createMemo(() => genericFlags(props.flagsSpec, flagSearch()));
+  const genericTotal = createMemo(() => genericFlags(props.flagsSpec, "").length);
+  const navItems = createMemo<NavItem[]>(() => [
+    ...fields().map((field) => ({ kind: "field", field }) as NavItem),
     { kind: "search" } as NavItem,
-    ...generic.map((flag) => ({ kind: "flag", flag }) as NavItem),
-  ];
+    ...generic().map((flag) => ({ kind: "flag", flag }) as NavItem),
+  ]);
 
   /** The effective ctx size from the current option (preset or custom text). */
   const ctxValue = (): number | undefined =>
-    ctxOpt === CTX_CUSTOM ? parseNum(ctxCustom) : CTX_PRESETS[ctxOpt];
+    ctxOpt() === CTX_CUSTOM ? parseNum(ctxCustom()) : CTX_PRESETS[ctxOpt()];
 
   /** The effective value of an enum field (undefined when on the neutral option). */
   const enumValue = (id: EnumFieldId): string | undefined => {
-    const i = enumOpt[id];
+    const i = enumOpt()[id];
     return i === 0 ? undefined : ENUM_OPTS[id][i];
   };
 
   const submit = (): void => {
-    const extra = values.extraArgs
+    const vals = values();
+    const extra = vals.extraArgs
       .split(/\s+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     const spec: LaunchSpec = {
-      model: values.model.trim(),
-      alias: values.alias.trim() === "" ? undefined : values.alias.trim(),
+      model: vals.model.trim(),
+      alias: vals.alias.trim() === "" ? undefined : vals.alias.trim(),
       ctxSize: ctxValue(),
-      gpuLayers: parseNum(values.gpuLayers),
-      nCpuMoe: parseNum(values.nCpuMoe),
-      threads: parseNum(values.threads),
-      batchSize: parseNum(values.batchSize),
-      ubatchSize: parseNum(values.ubatchSize),
-      parallel: parseNum(values.parallel),
+      gpuLayers: parseNum(vals.gpuLayers),
+      nCpuMoe: parseNum(vals.nCpuMoe),
+      threads: parseNum(vals.threads),
+      batchSize: parseNum(vals.batchSize),
+      ubatchSize: parseNum(vals.ubatchSize),
+      parallel: parseNum(vals.parallel),
       flashAttn: enumValue("flashAttn") as "on" | "off" | undefined,
       reasoning: enumValue("reasoning") as "on" | "off" | undefined,
       jinja: enumValue("jinja") as "on" | "off" | undefined,
@@ -466,15 +464,15 @@ export function FlagEditor({
       mmap: enumValue("mmap") as "on" | "off" | undefined,
       cacheTypeK: enumValue("cacheTypeK"),
       cacheTypeV: enumValue("cacheTypeV"),
-      mmproj: values.mmproj.trim() === "" ? undefined : values.mmproj.trim(),
-      chatTemplate: values.chatTemplate.trim() === "" ? undefined : values.chatTemplate.trim(),
-      host: values.host.trim() === "" ? undefined : values.host.trim(),
-      port: parseNum(values.port),
+      mmproj: vals.mmproj.trim() === "" ? undefined : vals.mmproj.trim(),
+      chatTemplate: vals.chatTemplate.trim() === "" ? undefined : vals.chatTemplate.trim(),
+      host: vals.host.trim() === "" ? undefined : vals.host.trim(),
+      port: parseNum(vals.port),
       extraArgs: extra.length > 0 ? extra : undefined,
       extraFlags: collectExtraFlags(),
     };
-    const name = values.name.trim() === "" ? undefined : values.name.trim();
-    onSubmit({ name, spec });
+    const name = vals.name.trim() === "" ? undefined : vals.name.trim();
+    props.onSubmit({ name, spec });
   };
 
   /**
@@ -485,9 +483,9 @@ export function FlagEditor({
    * drops flags meaningful to another.
    */
   const collectExtraFlags = (): Record<string, string | true> | undefined => {
-    const known = new Map((flagsSpec?.flags ?? []).map((f) => [f.flag, f]));
+    const known = new Map((props.flagsSpec?.flags ?? []).map((f) => [f.flag, f]));
     const out: Record<string, string | true> = {};
-    for (const [flag, raw] of Object.entries(extraFlags)) {
+    for (const [flag, raw] of Object.entries(extraFlags())) {
       if (CURATED_FLAGS.has(flag)) continue;
       const def = known.get(flag);
       const takesValue = def ? def.takesValue : raw !== "on"; // unknown ⇒ infer
@@ -504,39 +502,41 @@ export function FlagEditor({
   /** On focus change, put the cursor at the end of the newly-focused text field. */
   const focusField = (idx: number): void => {
     setFocus(idx);
-    const it = navItems[idx];
+    const it = navItems()[idx];
     if (!it) return;
-    if (it.kind === "search") setCursor(flagSearch.length);
-    else if (it.kind === "flag" && it.flag.takesValue) setCursor((extraFlags[it.flag.flag] ?? "").length);
+    if (it.kind === "search") setCursor(flagSearch().length);
+    else if (it.kind === "flag" && it.flag.takesValue)
+      setCursor((extraFlags()[it.flag.flag] ?? "").length);
     else if (it.kind === "field" && !isEnumField(it.field.id) && it.field.id !== "ctxSize") {
-      setCursor(values[it.field.id as TextFieldId].length);
+      setCursor(values()[it.field.id as TextFieldId].length);
     }
   };
 
-  useInput((input, key) => {
-    const item = navItems[focus];
+  useKeyboard((key) => {
+    const items = navItems();
+    const item = items[focus()];
     if (!item) return;
 
-    if (key.escape) {
-      onCancel();
+    if (key.name === "escape") {
+      props.onCancel();
       return;
     }
-    if (key.return) {
+    if (key.name === "return" || key.name === "enter") {
       submit();
       return;
     }
-    if (key.tab || key.downArrow) {
-      focusField((focus + 1) % navItems.length);
+    if (key.name === "tab" || key.name === "down") {
+      focusField((focus() + 1) % items.length);
       return;
     }
-    if (key.upArrow) {
-      focusField((focus - 1 + navItems.length) % navItems.length);
+    if (key.name === "up") {
+      focusField((focus() - 1 + items.length) % items.length);
       return;
     }
 
     // Generic "all flags" section.
     if (item.kind === "search") {
-      const next = editText({ value: flagSearch, cursor }, input, key);
+      const next = editText({ value: flagSearch(), cursor: cursor() }, key);
       if (next) {
         setFlagSearch(next.value);
         setCursor(next.cursor);
@@ -547,12 +547,12 @@ export function FlagEditor({
       const f = item.flag;
       if (!f.takesValue) {
         // Boolean switch: ←/→/space toggles between on and off (absent).
-        if (key.leftArrow || key.rightArrow || input === " ") {
+        if (key.name === "left" || key.name === "right" || key.sequence === " ") {
           setExtraFlags((m) => ({ ...m, [f.flag]: m[f.flag] === "on" ? "off" : "on" }));
         }
         return;
       }
-      const next = editText({ value: extraFlags[f.flag] ?? "", cursor }, input, key);
+      const next = editText({ value: extraFlags()[f.flag] ?? "", cursor: cursor() }, key);
       if (next) {
         setExtraFlags((m) => ({ ...m, [f.flag]: next.value }));
         setCursor(next.cursor);
@@ -564,13 +564,13 @@ export function FlagEditor({
 
     // Ctx size: ←/→ scroll through presets and into "Custom"; on Custom, type digits.
     if (field.id === "ctxSize") {
-      if (key.leftArrow) {
+      if (key.name === "left") {
         setCtxOpt((o) => Math.max(0, o - 1));
         return;
       }
-      if (key.rightArrow) {
-        if (ctxOpt < CTX_CUSTOM) {
-          const next = ctxOpt + 1;
+      if (key.name === "right") {
+        if (ctxOpt() < CTX_CUSTOM) {
+          const next = ctxOpt() + 1;
           // Entering Custom from the last preset: seed the number with that
           // preset so the value reads continuously, ready to tweak.
           if (next === CTX_CUSTOM) setCtxCustom(String(CTX_PRESETS[CTX_CUSTOM - 1]));
@@ -578,11 +578,12 @@ export function FlagEditor({
         }
         return;
       }
-      if (ctxOpt === CTX_CUSTOM) {
-        if (key.backspace || key.delete) {
+      if (ctxOpt() === CTX_CUSTOM) {
+        if (key.name === "backspace" || key.name === "delete") {
           setCtxCustom((s) => s.slice(0, -1));
           return;
         }
+        const input = key.sequence;
         if (input && /^[0-9]+$/.test(input) && !key.ctrl && !key.meta) {
           setCtxCustom((s) => s + input);
           return;
@@ -595,11 +596,11 @@ export function FlagEditor({
     if (isEnumField(field.id)) {
       const id = field.id;
       const max = ENUM_OPTS[id].length - 1;
-      if (key.leftArrow) {
+      if (key.name === "left") {
         setEnumOpt((e) => ({ ...e, [id]: Math.max(0, e[id] - 1) }));
         return;
       }
-      if (key.rightArrow) {
+      if (key.name === "right") {
         setEnumOpt((e) => ({ ...e, [id]: Math.min(max, e[id] + 1) }));
         return;
       }
@@ -612,7 +613,7 @@ export function FlagEditor({
     const accept = NUMERIC_FIELDS.has(key2)
       ? (text: string) => /^[0-9]+$/.test(text)
       : undefined;
-    const next = editText({ value: values[key2], cursor }, input, key, accept);
+    const next = editText({ value: values()[key2], cursor: cursor() }, key, accept);
     if (next) {
       setValues((v) => ({ ...v, [key2]: next.value }));
       setCursor(next.cursor);
@@ -626,304 +627,353 @@ export function FlagEditor({
     inner: string,
     canLeft: boolean,
     canRight: boolean,
-  ): React.ReactElement => (
-    <Box key={f.id}>
-      <Box width={13}>
-        <Text color={focused ? "cyan" : undefined}>
-          {focused ? "› " : "  "}
-          {f.label}
-        </Text>
-      </Box>
-      <Text color={focused ? "cyan" : undefined}>
-        {focused && canLeft ? "‹ " : "  "}
-        {inner}
-        {focused && canRight ? " ›" : ""}
-      </Text>
-    </Box>
+  ): JSX.Element => (
+    <box flexDirection="row">
+      <box width={13} flexDirection="row">
+        <text fg={focused ? C.accent : undefined}>
+          {(focused ? "› " : "  ") + f.label}
+        </text>
+      </box>
+      <text fg={focused ? C.accent : undefined}>
+        {(focused && canLeft ? "‹ " : "  ") + inner + (focused && canRight ? " ›" : "")}
+      </text>
+    </box>
   );
 
   // Window the row list when it won't all fit, keeping the focused row in view.
   // Chrome inside the box is the border (2) + title (1) + the estimate block
   // (marginTop + line = 2) + the hint line (1); reserve one more line for the
   // scroll indicator.
-  const capacity =
-    availableHeight != null ? Math.max(1, availableHeight - 6) : undefined;
-  const scrolling = capacity != null && navItems.length > capacity;
-  const { start, end } = scrolling
-    ? windowSlice(navItems.length, focus, Math.max(1, capacity - 1))
-    : { start: 0, end: navItems.length };
-  const visibleItems = navItems.slice(start, end);
-  const hiddenAbove = start;
-  const hiddenBelow = navItems.length - end;
+  const capacity = createMemo<number | undefined>(() =>
+    props.availableHeight != null ? Math.max(1, props.availableHeight - 6) : undefined,
+  );
+  const scrolling = createMemo(() => {
+    const cap = capacity();
+    return cap != null && navItems().length > cap;
+  });
+  const slice = createMemo<{ start: number; end: number }>(() => {
+    const cap = capacity();
+    return scrolling() && cap != null
+      ? windowSlice(navItems().length, focus(), Math.max(1, cap - 1))
+      : { start: 0, end: navItems().length };
+  });
+  const start = (): number => slice().start;
+  const end = (): number => slice().end;
+  const visibleItems = createMemo<NavItem[]>(() => navItems().slice(start(), end()));
+  const hiddenAbove = (): number => start();
+  const hiddenBelow = (): number => navItems().length - end();
 
-  const showInfo = (availableWidth ?? 0) >= 56;
-  const infoWidth = Math.max(24, Math.min(46, Math.floor((availableWidth ?? 80) * 0.42)));
+  const showInfo = (): boolean => (props.availableWidth ?? 0) >= 56;
+  const infoWidth = (): number =>
+    Math.max(24, Math.min(46, Math.floor((props.availableWidth ?? 80) * 0.42)));
 
   // Columns left for a value: the modal inner width (less the round border +
   // paddingX = 4), minus the side panel when shown (its marginLeft 2 + left
   // border 1 + paddingLeft 2 + infoWidth), minus the label column. The trailing
   // -1 keeps the scroll window a hair under the real space so it can't spill and
   // wrap — values horizontally scroll rather than truncate to "…".
-  const formWidth = (availableWidth ?? 80) - 4 - (showInfo ? infoWidth + 5 : 0);
-  const valueWidth = Math.max(8, formWidth - 13 - 1);
-  const flagValueWidth = Math.max(8, formWidth - FLAG_LABEL_WIDTH - 1);
+  const formWidth = (): number =>
+    (props.availableWidth ?? 80) - 4 - (showInfo() ? infoWidth() + 5 : 0);
+  const valueWidth = (): number => Math.max(8, formWidth() - 13 - 1);
+  const flagValueWidth = (): number => Math.max(8, formWidth() - FLAG_LABEL_WIDTH - 1);
 
   // The side panel describes the focused row: a curated field's help, the flag
   // filter, or a generic flag's --help text.
-  const focusedItem = navItems[focus];
-  const info = focusedItem?.kind === "field" ? INFO[focusedItem.field.id] : undefined;
+  const focusedItem = (): NavItem | undefined => navItems()[focus()];
+  const info = (): FieldInfo | undefined => {
+    const fi = focusedItem();
+    return fi?.kind === "field" ? INFO[fi.field.id] : undefined;
+  };
 
   // Live memory estimate from the model's GGUF dims and the current flags.
-  const estimate = model
-    ? estimateUsage(
-        {
-          sizeBytes: model.sizeBytes,
-          nLayers: model.nLayers,
-          kvDim: model.kvDim,
-          nEmbd: model.nEmbd,
-          nHeads: model.nHeads,
-        },
-        {
-          model: values.model,
-          ctxSize: ctxValue(),
-          gpuLayers: parseNum(values.gpuLayers),
-          ubatchSize: parseNum(values.ubatchSize),
-          cacheTypeK: enumValue("cacheTypeK"),
-          cacheTypeV: enumValue("cacheTypeV"),
-          flashAttn: enumValue("flashAttn") as "on" | "off" | undefined,
-        },
-        { gpuAvailable },
-      )
-    : null;
+  const estimate = createMemo(() => {
+    const m = props.model;
+    if (!m) return null;
+    return estimateUsage(
+      {
+        sizeBytes: m.sizeBytes,
+        nLayers: m.nLayers,
+        kvDim: m.kvDim,
+        nEmbd: m.nEmbd,
+        nHeads: m.nHeads,
+      },
+      {
+        model: values().model,
+        ctxSize: ctxValue(),
+        gpuLayers: parseNum(values().gpuLayers),
+        ubatchSize: parseNum(values().ubatchSize),
+        cacheTypeK: enumValue("cacheTypeK"),
+        cacheTypeV: enumValue("cacheTypeV"),
+        flashAttn: enumValue("flashAttn") as "on" | "off" | undefined,
+      },
+      { gpuAvailable: gpuAvailable() },
+    );
+  });
 
   /** Render one curated field row (ctx scroller, enum chooser, or text input). */
-  const renderField = (f: FieldDef, focused: boolean): React.ReactElement => {
+  const renderField = (f: FieldDef, focused: boolean): JSX.Element => {
     if (f.id === "ctxSize") {
-      const isCustom = ctxOpt === CTX_CUSTOM;
+      const isCustom = ctxOpt() === CTX_CUSTOM;
       const inner = isCustom
-        ? `custom: ${ctxCustom}${focused ? "▏" : ""}`
-        : String(CTX_PRESETS[ctxOpt]);
-      return chooserRow(f, focused, inner, ctxOpt > 0, ctxOpt < CTX_CUSTOM);
+        ? `custom: ${ctxCustom()}${focused ? "▏" : ""}`
+        : String(CTX_PRESETS[ctxOpt()]);
+      return chooserRow(f, focused, inner, ctxOpt() > 0, ctxOpt() < CTX_CUSTOM);
     }
     if (isEnumField(f.id)) {
       const opts = ENUM_OPTS[f.id];
-      const idx = enumOpt[f.id];
+      const idx = enumOpt()[f.id];
       return chooserRow(f, focused, opts[idx]!, idx > 0, idx < opts.length - 1);
     }
     return (
-      <Box key={f.id}>
-        <Box width={13}>
-          <Text color={focused ? "cyan" : undefined}>
-            {focused ? "› " : "  "}
-            {f.label}
-          </Text>
-        </Box>
+      <box flexDirection="row">
+        <box width={13} flexDirection="row">
+          <text fg={focused ? C.accent : undefined}>
+            {(focused ? "› " : "  ") + f.label}
+          </text>
+        </box>
         <CursorText
-          value={values[f.id as TextFieldId]}
-          cursor={cursor}
+          value={values()[f.id as TextFieldId]}
+          cursor={cursor()}
           focused={focused}
-          width={valueWidth}
+          width={valueWidth()}
         />
-      </Box>
+      </box>
     );
   };
 
   /** Render one generic flag row: an on/off switch, or a text value input. */
-  const renderFlag = (flag: LlamaFlag, focused: boolean): React.ReactElement => {
+  const renderFlag = (flag: LlamaFlag, focused: boolean): JSX.Element => {
     const label = (focused ? "› " : "  ") + flag.flag;
-    const value = extraFlags[flag.flag] ?? "";
+    const value = extraFlags()[flag.flag] ?? "";
     return (
-      <Box key={flag.flag}>
-        <Box width={FLAG_LABEL_WIDTH}>
-          <Text color={focused ? "cyan" : undefined} wrap="truncate-end">
-            {label}
-          </Text>
-        </Box>
-        {flag.takesValue ? (
+      <box flexDirection="row">
+        {/* wrap="truncate-end" dropped: relies on the width={FLAG_LABEL_WIDTH} box. */}
+        <box width={FLAG_LABEL_WIDTH} flexDirection="row" overflow="hidden">
+          <text fg={focused ? C.accent : undefined}>{label}</text>
+        </box>
+        <Show
+          when={flag.takesValue}
+          fallback={
+            <text fg={focused ? C.accent : value === "on" ? C.success : undefined}>
+              {(focused ? "‹ " : "  ") + (value === "on" ? "on" : "off") + (focused ? " ›" : "")}
+            </text>
+          }
+        >
           <CursorText
             value={value}
-            cursor={cursor}
+            cursor={cursor()}
             focused={focused}
-            width={flagValueWidth}
+            width={flagValueWidth()}
             placeholder={flag.valueHint}
           />
-        ) : (
-          <Text color={focused ? "cyan" : value === "on" ? "green" : undefined}>
-            {focused ? "‹ " : "  "}
-            {value === "on" ? "on" : "off"}
-            {focused ? " ›" : ""}
-          </Text>
-        )}
-      </Box>
+        </Show>
+      </box>
     );
   };
 
   const form = (
-    <Box flexDirection="column" flexGrow={1}>
-      {visibleItems.map((it, vi) => {
-        const focused = start + vi === focus;
-        if (it.kind === "field") return renderField(it.field, focused);
-        if (it.kind === "flag") return renderFlag(it.flag, focused);
-        // Search row, headed by an "all flags" divider.
-        return (
-          <Box key="__flagsearch" flexDirection="column">
-            <Text dimColor>
-              ── all flags{flagsSpec?.version ? ` · llama-server ${flagsSpec.version}` : ""} ──
-            </Text>
-            <Box>
-              <Box width={FLAG_LABEL_WIDTH}>
-                <Text color={focused ? "cyan" : undefined}>
-                  {focused ? "› " : "  "}
-                  search
-                </Text>
-              </Box>
-              <CursorText
-                value={flagSearch}
-                cursor={cursor}
-                focused={focused}
-                width={flagValueWidth}
-                placeholder="filter by name or description…"
-              />
-            </Box>
-            {generic.length === 0 ? (
-              <Text dimColor>
-                {"  "}
-                {genericTotal > 0
-                  ? "no flags match the filter"
-                  : flagsSpec == null
-                    ? "flags unavailable — restart the daemon (llamactl daemon stop) to enable"
-                    : flagsSpec.version
-                      ? "couldn't read this binary's flags from --help"
-                      : "llama-server not found — set llamaServerPath or activate an install"}
-              </Text>
-            ) : null}
-          </Box>
-        );
-      })}
-      {scrolling ? (
-        <Text dimColor>
-          {hiddenAbove > 0 ? `↑ ${hiddenAbove} more` : ""}
-          {hiddenAbove > 0 && hiddenBelow > 0 ? "   " : ""}
-          {hiddenBelow > 0 ? `↓ ${hiddenBelow} more` : ""}
-        </Text>
-      ) : null}
-    </Box>
+    <box flexDirection="column" flexGrow={1}>
+      <For each={visibleItems()}>
+        {(it, vi) => {
+          const focused = (): boolean => start() + vi() === focus();
+          return (
+            <Show
+              when={it.kind === "field"}
+              fallback={
+                <Show
+                  when={it.kind === "flag"}
+                  fallback={
+                    // Search row, headed by an "all flags" divider.
+                    <box flexDirection="column">
+                      <text attributes={TextAttributes.DIM}>
+                        {`── all flags${
+                          props.flagsSpec?.version ? ` · llama-server ${props.flagsSpec.version}` : ""
+                        } ──`}
+                      </text>
+                      <box flexDirection="row">
+                        <box width={FLAG_LABEL_WIDTH} flexDirection="row">
+                          <text fg={focused() ? C.accent : undefined}>
+                            {(focused() ? "› " : "  ") + "search"}
+                          </text>
+                        </box>
+                        <CursorText
+                          value={flagSearch()}
+                          cursor={cursor()}
+                          focused={focused()}
+                          width={flagValueWidth()}
+                          placeholder="filter by name or description…"
+                        />
+                      </box>
+                      <Show when={generic().length === 0}>
+                        <text attributes={TextAttributes.DIM}>
+                          {"  " +
+                            (genericTotal() > 0
+                              ? "no flags match the filter"
+                              : props.flagsSpec == null
+                                ? "flags unavailable — restart the daemon (llamactl daemon stop) to enable"
+                                : props.flagsSpec.version
+                                  ? "couldn't read this binary's flags from --help"
+                                  : "llama-server not found — set llamaServerPath or activate an install")}
+                        </text>
+                      </Show>
+                    </box>
+                  }
+                >
+                  {renderFlag((it as { kind: "flag"; flag: LlamaFlag }).flag, focused())}
+                </Show>
+              }
+            >
+              {renderField((it as { kind: "field"; field: FieldDef }).field, focused())}
+            </Show>
+          );
+        }}
+      </For>
+      <Show when={scrolling()}>
+        <text attributes={TextAttributes.DIM}>
+          {(hiddenAbove() > 0 ? `↑ ${hiddenAbove()} more` : "") +
+            (hiddenAbove() > 0 && hiddenBelow() > 0 ? "   " : "") +
+            (hiddenBelow() > 0 ? `↓ ${hiddenBelow()} more` : "")}
+        </text>
+      </Show>
+    </box>
   );
 
   return (
-    <Box
+    <box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
+      border
+      borderStyle="rounded"
+      borderColor={C.border}
+      backgroundColor={C.surface}
       paddingX={1}
-      width={availableWidth}
+      width={props.availableWidth}
     >
-      <Text bold>{title}</Text>
-      <Box flexDirection="row">
+      <text attributes={TextAttributes.BOLD}>{props.title}</text>
+      <box flexDirection="row">
         {form}
-        {showInfo ? (
-          <Box
+        <Show when={showInfo()}>
+          <box
             flexDirection="column"
-            width={infoWidth}
+            width={infoWidth()}
             marginLeft={2}
             paddingLeft={2}
-            borderStyle="round"
-            borderColor="gray"
-            borderTop={false}
-            borderRight={false}
-            borderBottom={false}
+            border={["left"]}
+            borderStyle="rounded"
+            borderColor={C.border}
           >
-            {info && focusedItem?.kind === "field" ? (
+            <Show
+              when={info() && focusedItem()?.kind === "field"}
+              fallback={
+                <Show
+                  when={focusedItem()?.kind === "flag"}
+                  fallback={
+                    <>
+                      <text fg={C.accent} attributes={TextAttributes.BOLD}>
+                        All flags
+                      </text>
+                      <text attributes={TextAttributes.DIM}>llama-server --help</text>
+                      <box marginTop={1} flexDirection="row">
+                        <text>
+                          Every flag the active binary accepts, beyond the curated fields above. Type
+                          to filter; ↑↓ to move; ←/→ or space toggles a switch.
+                        </text>
+                      </box>
+                    </>
+                  }
+                >
+                  {(() => {
+                    const fi = focusedItem() as { kind: "flag"; flag: LlamaFlag };
+                    return (
+                      <>
+                        <text fg={C.accent} attributes={TextAttributes.BOLD}>
+                          {fi.flag.flag + (fi.flag.short ? `, ${fi.flag.short}` : "")}
+                        </text>
+                        <text attributes={TextAttributes.DIM}>
+                          {fi.flag.takesValue
+                            ? `takes a value${fi.flag.valueHint ? `: ${fi.flag.valueHint}` : ""}`
+                            : "on/off switch (←/→ or space)"}
+                        </text>
+                        <Show when={fi.flag.help}>
+                          <box marginTop={1} flexDirection="row">
+                            <text>{fi.flag.help}</text>
+                          </box>
+                        </Show>
+                        <Show when={fi.flag.default}>
+                          <box marginTop={1} flexDirection="row">
+                            <text attributes={TextAttributes.DIM}>{`default: ${fi.flag.default}`}</text>
+                          </box>
+                        </Show>
+                      </>
+                    );
+                  })()}
+                </Show>
+              }
+            >
+              {(() => {
+                const fi = focusedItem() as { kind: "field"; field: FieldDef };
+                const fInfo = info()!;
+                return (
+                  <>
+                    <text fg={C.accent} attributes={TextAttributes.BOLD}>
+                      {fi.field.label}
+                    </text>
+                    <text attributes={TextAttributes.DIM}>{fInfo.flag}</text>
+                    <box marginTop={1} flexDirection="row">
+                      <text>{fInfo.desc}</text>
+                    </box>
+                    <Show when={fInfo.note}>
+                      <box marginTop={1} flexDirection="row">
+                        <text attributes={TextAttributes.DIM}>{fInfo.note}</text>
+                      </box>
+                    </Show>
+                  </>
+                );
+              })()}
+            </Show>
+          </box>
+        </Show>
+      </box>
+      <box marginTop={1} flexDirection="row">
+        <Show
+          when={estimate()}
+          fallback={
+            <text attributes={TextAttributes.DIM}>≈ estimate unavailable (model not found)</text>
+          }
+        >
+          {/* wrap="truncate-end" dropped: clipped by the parent box width. The
+              former nested <Text> runs are flattened into sibling <text>. */}
+          <text fg={C.accent2}>≈ </text>
+          <Show
+            when={gpuAvailable()}
+            fallback={
               <>
-                <Text bold color="cyan">
-                  {focusedItem.field.label}
-                </Text>
-                <Text dimColor>{info.flag}</Text>
-                <Box marginTop={1}>
-                  <Text>{info.desc}</Text>
-                </Box>
-                {info.note ? (
-                  <Box marginTop={1}>
-                    <Text dimColor>{info.note}</Text>
-                  </Box>
-                ) : null}
+                <text attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.ramBytes)}</text>
+                <text attributes={TextAttributes.DIM}> RAM (CPU-only — no GPU)</text>
               </>
-            ) : focusedItem?.kind === "flag" ? (
-              <>
-                <Text bold color="cyan">
-                  {focusedItem.flag.flag}
-                  {focusedItem.flag.short ? `, ${focusedItem.flag.short}` : ""}
-                </Text>
-                <Text dimColor>
-                  {focusedItem.flag.takesValue
-                    ? `takes a value${focusedItem.flag.valueHint ? `: ${focusedItem.flag.valueHint}` : ""}`
-                    : "on/off switch (←/→ or space)"}
-                </Text>
-                {focusedItem.flag.help ? (
-                  <Box marginTop={1}>
-                    <Text>{focusedItem.flag.help}</Text>
-                  </Box>
-                ) : null}
-                {focusedItem.flag.default ? (
-                  <Box marginTop={1}>
-                    <Text dimColor>default: {focusedItem.flag.default}</Text>
-                  </Box>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <Text bold color="cyan">
-                  All flags
-                </Text>
-                <Text dimColor>llama-server --help</Text>
-                <Box marginTop={1}>
-                  <Text>
-                    Every flag the active binary accepts, beyond the curated fields above. Type to
-                    filter; ↑↓ to move; ←/→ or space toggles a switch.
-                  </Text>
-                </Box>
-              </>
-            )}
-          </Box>
-        ) : null}
-      </Box>
-      <Box marginTop={1}>
-        {estimate ? (
-          <Text wrap="truncate-end">
-            <Text color="magenta">≈ </Text>
-            {gpuAvailable ? (
-              <>
-                <Text bold>{humanBytes(estimate.vramBytes)}</Text>
-                <Text dimColor> VRAM · </Text>
-                <Text bold>{humanBytes(estimate.ramBytes)}</Text>
-                <Text dimColor> RAM</Text>
-              </>
-            ) : (
-              <>
-                <Text bold>{humanBytes(estimate.ramBytes)}</Text>
-                <Text dimColor> RAM (CPU-only — no GPU)</Text>
-              </>
-            )}
-            <Text dimColor>
-              {`   (weights ${humanBytes(model!.sizeBytes)} · KV ${
-                estimate.kvUnknown ? "n/a" : humanBytes(estimate.kvBytes)
-              })`}
-            </Text>
-            {actual ? (
-              <Text color="green">
-                {`   · live ${humanBytes(actual.rssBytes)} RAM${
-                  gpuAvailable ? ` · ${humanBytes(actual.vramBytes)} VRAM` : ""
-                }`}
-              </Text>
-            ) : null}
-          </Text>
-        ) : (
-          <Text dimColor>≈ estimate unavailable (model not found)</Text>
-        )}
-      </Box>
-      <Box>
-        <Text dimColor>Tab/↑↓ move · ←/→ adjust · Enter save · Esc cancel</Text>
-      </Box>
-    </Box>
+            }
+          >
+            <text attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.vramBytes)}</text>
+            <text attributes={TextAttributes.DIM}> VRAM · </text>
+            <text attributes={TextAttributes.BOLD}>{humanBytes(estimate()!.ramBytes)}</text>
+            <text attributes={TextAttributes.DIM}> RAM</text>
+          </Show>
+          <text attributes={TextAttributes.DIM}>
+            {`   (weights ${humanBytes(props.model!.sizeBytes)} · KV ${
+              estimate()!.kvUnknown ? "n/a" : humanBytes(estimate()!.kvBytes)
+            })`}
+          </text>
+          <Show when={props.actual}>
+            <text fg={C.success}>
+              {`   · live ${humanBytes(props.actual!.rssBytes)} RAM${
+                gpuAvailable() ? ` · ${humanBytes(props.actual!.vramBytes)} VRAM` : ""
+              }`}
+            </text>
+          </Show>
+        </Show>
+      </box>
+      <box flexDirection="row">
+        <text attributes={TextAttributes.DIM}>Tab/↑↓ move · ←/→ adjust · Enter save · Esc cancel</text>
+      </box>
+    </box>
   );
 }

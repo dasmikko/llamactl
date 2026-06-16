@@ -10,11 +10,13 @@
  * modal is open), so it captures ↑/↓/Enter/Esc and, in manage mode, n/d.
  */
 
-import React, { useEffect, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
+import { useKeyboard } from "@opentui/solid";
+import { TextAttributes } from "@opentui/core";
 import type { InstanceConfig, LaunchSpec } from "../types.ts";
 import type { Row } from "./rows.ts";
 import { ShortcutBar, type Shortcut } from "./ShortcutBar.tsx";
+import { C } from "./theme.ts";
 
 export interface ProfileDialogProps {
   variant: "launch" | "manage";
@@ -33,8 +35,8 @@ export interface ProfileDialogProps {
 
 type Entry = { kind: "profile"; profile: InstanceConfig } | { kind: "new" };
 
-const ACCENT = "#5f87ff"; // matches the catalog repo-header blue
-const MUTED = "#9aa3b2";
+const ACCENT = C.accent;
+const MUTED = C.muted;
 
 /** One-line summary of the launch knobs a spec overrides (ctx, gpu layers). */
 function summarizeSpec(spec: LaunchSpec): string {
@@ -46,67 +48,61 @@ function summarizeSpec(spec: LaunchSpec): string {
   return parts.join(" · ");
 }
 
-export function ProfileDialog({
-  variant,
-  row,
-  onLaunchProfile,
-  onNew,
-  onEdit,
-  onDelete,
-  onClose,
-}: ProfileDialogProps): React.ReactElement {
-  const profiles = row.profiles;
-  const entries: Entry[] = [
-    ...profiles.map((p) => ({ kind: "profile", profile: p }) as Entry),
+export function ProfileDialog(props: ProfileDialogProps) {
+  const entries = createMemo<Entry[]>(() => [
+    ...props.row.profiles.map((p) => ({ kind: "profile", profile: p }) as Entry),
     { kind: "new" } as Entry,
-  ];
+  ]);
 
-  const [sel, setSel] = useState(0);
+  const [sel, setSel] = createSignal(0);
   // The profile id armed for deletion (press d again / y to confirm), or null.
-  const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  const [armedDelete, setArmedDelete] = createSignal<string | null>(null);
 
   // Keep the cursor in range as the profile list shrinks (after a delete).
-  useEffect(() => {
-    if (sel > entries.length - 1) setSel(Math.max(0, entries.length - 1));
-  }, [entries.length, sel]);
+  createEffect(() => {
+    if (sel() > entries().length - 1) setSel(Math.max(0, entries().length - 1));
+  });
 
   const activate = (e: Entry): void => {
-    if (e.kind === "new") onNew();
-    else if (variant === "launch") onLaunchProfile(e.profile);
-    else onEdit(e.profile);
+    if (e.kind === "new") props.onNew();
+    else if (props.variant === "launch") props.onLaunchProfile(e.profile);
+    else props.onEdit(e.profile);
   };
 
-  useInput((input, key) => {
-    if (key.escape) {
-      if (armedDelete) setArmedDelete(null);
-      else onClose();
+  useKeyboard((key) => {
+    if (key.name === "escape") {
+      if (armedDelete()) setArmedDelete(null);
+      else props.onClose();
       return;
     }
-    if (key.downArrow || input === "j") {
+    if (key.name === "down" || key.sequence === "j") {
       setArmedDelete(null);
-      setSel((s) => Math.min(entries.length - 1, s + 1));
+      setSel((s) => Math.min(entries().length - 1, s + 1));
       return;
     }
-    if (key.upArrow || input === "k") {
+    if (key.name === "up" || key.sequence === "k") {
       setArmedDelete(null);
       setSel((s) => Math.max(0, s - 1));
       return;
     }
-    const cur = entries[sel];
+    const cur = entries()[sel()];
     if (!cur) return;
-    if (key.return) {
+    if (key.name === "return" || key.name === "enter") {
       activate(cur);
       return;
     }
-    if (variant === "manage" && input === "n") {
-      onNew();
+    if (props.variant === "manage" && key.sequence === "n") {
+      props.onNew();
       return;
     }
-    if (variant === "manage" && (input === "d" || (armedDelete && input === "y"))) {
+    if (
+      props.variant === "manage" &&
+      (key.sequence === "d" || (armedDelete() && key.sequence === "y"))
+    ) {
       if (cur.kind !== "profile") return;
-      if (armedDelete === cur.profile.id) {
+      if (armedDelete() === cur.profile.id) {
         setArmedDelete(null);
-        onDelete(cur.profile);
+        props.onDelete(cur.profile);
       } else {
         setArmedDelete(cur.profile.id);
       }
@@ -114,58 +110,72 @@ export function ProfileDialog({
     }
   });
 
-  const title =
-    variant === "launch" ? `Launch  ${row.name}` : `Profiles  ${row.name}`;
+  const title = () =>
+    props.variant === "launch" ? `Launch  ${props.row.name}` : `Profiles  ${props.row.name}`;
 
   // Footer lists only what applies to the highlighted entry: the "+ New" row has
   // nothing to delete, and Enter means different things per variant/entry.
-  const selKind = entries[sel]?.kind;
-  const footerItems: Shortcut[] = [];
-  if (entries.length > 1) footerItems.push({ key: "↑↓", desc: "select" });
-  if (variant === "launch") {
-    footerItems.push({ key: "Enter", desc: selKind === "new" ? "new + launch" : "launch" });
-  } else {
-    footerItems.push({ key: "Enter", desc: selKind === "new" ? "create" : "edit" });
-    footerItems.push({ key: "n", desc: "new" });
-    if (selKind === "profile") footerItems.push({ key: "d", desc: "delete" });
-  }
-  footerItems.push({ key: "Esc", desc: variant === "launch" ? "cancel" : "close" });
+  const footerItems = (): Shortcut[] => {
+    const selKind = entries()[sel()]?.kind;
+    const items: Shortcut[] = [];
+    if (entries().length > 1) items.push({ key: "↑↓", desc: "select" });
+    if (props.variant === "launch") {
+      items.push({ key: "Enter", desc: selKind === "new" ? "new + launch" : "launch" });
+    } else {
+      items.push({ key: "Enter", desc: selKind === "new" ? "create" : "edit" });
+      items.push({ key: "n", desc: "new" });
+      if (selKind === "profile") items.push({ key: "d", desc: "delete" });
+    }
+    items.push({ key: "Esc", desc: props.variant === "launch" ? "cancel" : "close" });
+    return items;
+  };
 
   return (
-    <Box
+    <box
       flexDirection="column"
-      borderStyle="round"
-      borderColor={ACCENT}
+      border
+      borderStyle="rounded"
+      borderColor={C.border}
+      backgroundColor={C.surface}
       paddingX={1}
       minWidth={44}
     >
-      <Text bold color={ACCENT}>
-        {title}
-      </Text>
-      <Box flexDirection="column" marginTop={1}>
-        {entries.map((e, i) => {
-          const selected = i === sel;
-          const label = e.kind === "new" ? "+ New profile…" : e.profile.name;
-          const hint = e.kind === "profile" ? summarizeSpec(e.profile.spec) : "";
-          const arming = e.kind === "profile" && armedDelete === e.profile.id;
-          const text = `${selected ? "›" : " "} ${label}`;
-          return (
-            <Box key={e.kind === "profile" ? `p:${e.profile.id}` : e.kind}>
-              <Text inverse={selected} bold={selected} color={selected ? undefined : ACCENT}>
-                {text}
-              </Text>
-              {arming ? (
-                <Text color="#ff6b6b"> · delete? d/y to confirm</Text>
-              ) : hint ? (
-                <Text color={MUTED}>{`  ${hint}`}</Text>
-              ) : null}
-            </Box>
-          );
-        })}
-      </Box>
-      <Box marginTop={1}>
-        <ShortcutBar items={footerItems} />
-      </Box>
-    </Box>
+      <text fg={ACCENT} attributes={TextAttributes.BOLD}>
+        {title()}
+      </text>
+      <box flexDirection="column" marginTop={1}>
+        <For each={entries()}>
+          {(e, i) => {
+            const selected = () => i() === sel();
+            const label = e.kind === "new" ? "+ New profile…" : e.profile.name;
+            const hint = e.kind === "profile" ? summarizeSpec(e.profile.spec) : "";
+            const arming = () =>
+              e.kind === "profile" && armedDelete() === e.profile.id;
+            const labelText = () => `${selected() ? "›" : " "} ${label}`;
+            return (
+              <box flexDirection="row">
+                <text
+                  bg={selected() ? C.sel : undefined}
+                  fg={selected() ? C.selText : C.text}
+                  attributes={selected() ? TextAttributes.BOLD : TextAttributes.NONE}
+                >
+                  {labelText()}
+                </text>
+                <Show when={arming()} fallback={
+                  <Show when={hint}>
+                    <text fg={MUTED}>{`  ${hint}`}</text>
+                  </Show>
+                }>
+                  <text fg={C.danger}> · delete? d/y to confirm</text>
+                </Show>
+              </box>
+            );
+          }}
+        </For>
+      </box>
+      <box marginTop={1}>
+        <ShortcutBar items={footerItems()} />
+      </box>
+    </box>
   );
 }

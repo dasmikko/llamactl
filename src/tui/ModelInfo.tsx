@@ -4,13 +4,14 @@
  * running child or the saved profile). Opened with `i`, closed with Esc.
  */
 
-import React from "react";
-import { Box, Text } from "ink";
+import { For, Show, type JSX } from "solid-js";
+import { TextAttributes } from "@opentui/core";
 import type { LaunchSpec } from "../types.ts";
 import type { Row } from "./rows.ts";
 import { humanBytes, humanUptime, pct } from "./format.ts";
 import { parseRepo } from "../discovery/models.ts";
 import { ShortcutBar } from "./ShortcutBar.tsx";
+import { C } from "./theme.ts";
 
 export interface ModelInfoProps {
   row: Row;
@@ -47,104 +48,120 @@ function specLines(spec: LaunchSpec): string[] {
   return out.length > 0 ? out : ["(defaults)"];
 }
 
-function Field({ label, value }: { label: string; value: string }): React.ReactElement {
+function Field(props: { label: string; value: string }): JSX.Element {
   return (
-    <Box>
-      <Box width={16}>
-        <Text dimColor>{label}</Text>
-      </Box>
-      <Text>{value}</Text>
-    </Box>
+    <box flexDirection="row">
+      <box width={16}>
+        <text attributes={TextAttributes.DIM}>{props.label}</text>
+      </box>
+      <text>{props.value}</text>
+    </box>
   );
 }
 
-export function ModelInfo({ row, now }: ModelInfoProps): React.ReactElement {
-  const { model, instance, running, stats, profiles } = row;
-  const spec = running?.spec ?? instance?.spec;
-  const repo = model ? parseRepo(model.path) : null;
+export function ModelInfo(props: ModelInfoProps) {
+  // Derived accessors (the body runs once under Solid).
+  const model = () => props.row.model;
+  const instance = () => props.row.instance;
+  const running = () => props.row.running;
+  const stats = () => props.row.stats;
+  const profiles = () => props.row.profiles;
+  const spec = () => running()?.spec ?? instance()?.spec;
+  const repo = () => {
+    const m = model();
+    return m ? parseRepo(m.path) : null;
+  };
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
-        {row.name}
-      </Text>
-      {repo ? (
-        <Text dimColor>{`huggingface.co/${repo}  (press h to open)`}</Text>
-      ) : null}
+    <box flexDirection="column" border borderStyle="rounded" borderColor={C.border} backgroundColor={C.surface} paddingX={1}>
+      <text fg={C.accent} attributes={TextAttributes.BOLD}>
+        {props.row.name}
+      </text>
+      <Show when={repo()}>
+        <text attributes={TextAttributes.DIM}>{`huggingface.co/${repo()}  (press h to open)`}</text>
+      </Show>
 
-      <Box marginTop={1} flexDirection="column">
-        <Field label="Model id" value={model?.id ?? row.modelId} />
-        <Field label="Author" value={model?.org ?? "—"} />
-        <Field label="Architecture" value={model?.arch ?? "—"} />
-        <Field label="Kind" value={model?.kind ?? "—"} />
-        <Field label="Quant" value={row.quant ?? "—"} />
-        <Field label="Size" value={row.sizeBytes != null ? humanBytes(row.sizeBytes) : "—"} />
-        <Field label="Context (max)" value={ctxText(model?.contextLength)} />
-        <Field label="Source" value={model?.source ?? "—"} />
-        <Field label="Path" value={model?.path ?? "—"} />
-      </Box>
+      <box marginTop={1} flexDirection="column">
+        <Field label="Model id" value={model()?.id ?? props.row.modelId} />
+        <Field label="Author" value={model()?.org ?? "—"} />
+        <Field label="Architecture" value={model()?.arch ?? "—"} />
+        <Field label="Kind" value={model()?.kind ?? "—"} />
+        <Field label="Quant" value={props.row.quant ?? "—"} />
+        <Field label="Size" value={props.row.sizeBytes != null ? humanBytes(props.row.sizeBytes) : "—"} />
+        <Field label="Context (max)" value={ctxText(model()?.contextLength)} />
+        <Field label="Source" value={model()?.source ?? "—"} />
+        <Field label="Path" value={model()?.path ?? "—"} />
+      </box>
 
-      {running ? (
-        <Box marginTop={1} flexDirection="column">
-          <Text bold>Running</Text>
-          <Field label="Status" value={running.status} />
-          <Field label="Endpoint" value={`http://127.0.0.1:${running.port}`} />
-          <Field label="PID" value={String(running.pid)} />
-          <Field label="Uptime" value={humanUptime(running.startedAt, now)} />
-          <Field label="Restarts" value={String(running.restarts)} />
-          {stats ? (
+      <Show when={running()}>
+        <box marginTop={1} flexDirection="column">
+          <text attributes={TextAttributes.BOLD}>Running</text>
+          <Field label="Status" value={running()!.status} />
+          <Field label="Endpoint" value={`http://127.0.0.1:${running()!.port}`} />
+          <Field label="PID" value={String(running()!.pid)} />
+          <Field label="Uptime" value={humanUptime(running()!.startedAt, props.now)} />
+          <Field label="Restarts" value={String(running()!.restarts)} />
+          <Show when={stats()}>
             <Field
               label="CPU / RAM / VRAM"
-              value={`${pct(stats.cpuPct)}  ${humanBytes(stats.rssBytes)}  ${humanBytes(stats.vramBytes)}`}
+              value={`${pct(stats()!.cpuPct)}  ${humanBytes(stats()!.rssBytes)}  ${humanBytes(stats()!.vramBytes)}`}
             />
-          ) : null}
-          <Field label="Log" value={running.logPath} />
-        </Box>
-      ) : null}
+          </Show>
+          <Field label="Log" value={running()!.logPath} />
+        </box>
+      </Show>
 
-      <Box marginTop={1} flexDirection="column">
-        <Text bold>
-          {running
+      <box marginTop={1} flexDirection="column">
+        <text attributes={TextAttributes.BOLD}>
+          {running()
             ? "Launched with"
-            : instance
-              ? `Profile "${instance.name}"`
-              : profiles.length > 0
-                ? `Profiles (${profiles.length})`
+            : instance()
+              ? `Profile "${instance()!.name}"`
+              : profiles().length > 0
+                ? `Profiles (${profiles().length})`
                 : "Launch flags"}
-        </Text>
-        {spec ? (
-          // A running child or an orphan profile row → one resolved spec.
-          specLines(spec).map((l, i) => (
-            <Text key={i} dimColor>
-              {"  " + l}
-            </Text>
-          ))
-        ) : profiles.length > 0 ? (
-          // A model row carries any number of named profiles; show each.
-          profiles.map((p) => (
-            <Box key={p.id} flexDirection="column">
-              <Text color="#5f87ff">{`  ${p.name}`}</Text>
-              {specLines(p.spec).map((l, i) => (
-                <Text key={i} dimColor>
-                  {"    " + l}
-                </Text>
-              ))}
-            </Box>
-          ))
-        ) : (
-          <Text dimColor>{"  (no saved profile — uses defaults; press e to manage)"}</Text>
-        )}
-      </Box>
+        </text>
+        <Show
+          when={spec()}
+          fallback={
+            <Show
+              when={profiles().length > 0}
+              fallback={
+                <text attributes={TextAttributes.DIM}>
+                  {"  (no saved profile — uses defaults; press e to manage)"}
+                </text>
+              }
+            >
+              {/* A model row carries any number of named profiles; show each. */}
+              <For each={profiles()}>
+                {(p) => (
+                  <box flexDirection="column">
+                    <text fg={C.group}>{`  ${p.name}`}</text>
+                    <For each={specLines(p.spec)}>
+                      {(l) => <text attributes={TextAttributes.DIM}>{"    " + l}</text>}
+                    </For>
+                  </box>
+                )}
+              </For>
+            </Show>
+          }
+        >
+          {/* A running child or an orphan profile row → one resolved spec. */}
+          <For each={specLines(spec()!)}>
+            {(l) => <text attributes={TextAttributes.DIM}>{"  " + l}</text>}
+          </For>
+        </Show>
+      </box>
 
-      <Box marginTop={1}>
+      <box marginTop={1}>
         <ShortcutBar
           items={
-            repo
+            repo()
               ? [{ key: "Esc/i", desc: "close" }, { key: "h", desc: "HuggingFace" }]
               : [{ key: "Esc/i", desc: "close" }]
           }
         />
-      </Box>
-    </Box>
+      </box>
+    </box>
   );
 }

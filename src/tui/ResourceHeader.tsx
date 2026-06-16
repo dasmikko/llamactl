@@ -1,15 +1,16 @@
 /**
  * Top resource panel: a title/connection line, then two columns — live CPU/RAM
  * (and per-GPU) gauges on the left, and the daemon's facts (PID, uptime, port,
- * and model/instance/profile counts) on the right — plus any warnings. Pure-ish
- * presentational component memoized on its props so it only re-renders when a new
- * stats sample lands.
+ * and model/instance/profile counts) on the right — plus any warnings.
+ * Presentational; reads reactive props so it repaints when a new stats sample
+ * lands.
  */
 
-import React from "react";
-import { Box, Text } from "ink";
+import { For, Show } from "solid-js";
+import { TextAttributes } from "@opentui/core";
 import type { LlamaServerInfo, StatsSnapshot } from "../types.ts";
 import { bar, pct, humanBytes, humanUptime } from "./format.ts";
+import { C } from "./theme.ts";
 
 export interface ResourceHeaderProps {
   stats: StatsSnapshot | null;
@@ -48,155 +49,151 @@ function portOf(url: string): string | null {
   return m ? m[1]! : null;
 }
 
-function ResourceHeaderImpl({
-  stats,
-  llamaServer,
-  activeInstallName,
-  error,
-  connected,
-  daemon,
-  now,
-  modelsCount,
-  runningCount,
-  profilesCount,
-  downloadingCount,
-}: ResourceHeaderProps): React.ReactElement {
-  const sys = stats?.system;
-  const cpu = sys ? clamp100(sys.cpuPct) : 0;
-  const memUsed = sys?.memUsed ?? 0;
-  const memTotal = sys?.memTotal ?? 0;
+export function ResourceHeader(props: ResourceHeaderProps) {
+  // Derived accessors (the body runs once under Solid).
+  const sys = () => props.stats?.system;
+  const cpu = () => {
+    const s = sys();
+    return s ? clamp100(s.cpuPct) : 0;
+  };
+  const memUsed = () => sys()?.memUsed ?? 0;
+  const memTotal = () => sys()?.memTotal ?? 0;
 
   // Right-column daemon facts as a label/value list, beside the gauges.
-  const port = daemon ? portOf(daemon.controlUrl) : null;
-  const daemonRows: Array<[string, string]> = daemon
-    ? [
-        ["PID", String(daemon.pid)],
-        ["Uptime", humanUptime(daemon.startedAt, now)],
-        ["Port", port ?? "—"],
-        ["Models", String(modelsCount)],
-        ["Running", String(runningCount)],
-        ["Profiles", String(profilesCount)],
-        ...(downloadingCount > 0
-          ? ([["Downloads", String(downloadingCount)]] as Array<[string, string]>)
-          : []),
-      ]
-    : [];
+  const daemonRows = (): Array<[string, string]> => {
+    const d = props.daemon;
+    if (!d) return [];
+    const port = portOf(d.controlUrl);
+    return [
+      ["PID", String(d.pid)],
+      ["Uptime", humanUptime(d.startedAt, props.now)],
+      ["Port", port ?? "—"],
+      ["Models", String(props.modelsCount)],
+      ["Running", String(props.runningCount)],
+      ["Profiles", String(props.profilesCount)],
+      ...(props.downloadingCount > 0
+        ? ([["Downloads", String(props.downloadingCount)]] as Array<[string, string]>)
+        : []),
+    ];
+  };
 
   const gauges = (
-    <Box flexDirection="column">
-      <Box>
-        <Box width={6}>
-          <Text>CPU</Text>
-        </Box>
-        <Text color="cyan">{bar(cpu, 100, GAUGE_WIDTH)}</Text>
-        <Text> {pct(cpu)}</Text>
-        {sys?.tempC != null ? <Text>{`  ${sys.tempC}°C`}</Text> : null}
-      </Box>
+    <box flexDirection="column">
+      <box flexDirection="row">
+        <box width={6}>
+          <text>CPU</text>
+        </box>
+        <text fg={C.accent}>{bar(cpu(), 100, GAUGE_WIDTH)}</text>
+        <text> {pct(cpu())}</text>
+        <Show when={sys()?.tempC != null}>
+          <text>{`  ${sys()!.tempC}°C`}</text>
+        </Show>
+      </box>
 
-      <Box>
-        <Box width={6}>
-          <Text>RAM</Text>
-        </Box>
-        <Text color="cyan">{bar(memUsed, memTotal, GAUGE_WIDTH)}</Text>
-        <Text>
+      <box flexDirection="row">
+        <box width={6}>
+          <text>RAM</text>
+        </box>
+        <text fg={C.accent}>{bar(memUsed(), memTotal(), GAUGE_WIDTH)}</text>
+        <text>
           {" "}
-          {humanBytes(memUsed)} / {humanBytes(memTotal)}
-        </Text>
-      </Box>
+          {humanBytes(memUsed())} / {humanBytes(memTotal())}
+        </text>
+      </box>
 
-      {stats?.gpuAvailable
-        ? stats.gpus.map((g) => {
-            // Label VRAM rows per-index only when there's more than one GPU.
-            const vramLabel = stats.gpus.length > 1 ? `VRAM${g.index}` : "VRAM";
+      <Show when={props.stats?.gpuAvailable}>
+        <For each={props.stats!.gpus}>
+          {(g) => {
+            const vramLabel = props.stats!.gpus.length > 1 ? `VRAM${g.index}` : "VRAM";
             return (
-              <React.Fragment key={g.index}>
-                <Box>
-                  <Box width={6}>
-                    <Text>GPU{g.index}</Text>
-                  </Box>
-                  <Text color="magenta">{bar(clamp100(g.utilPct), 100, GAUGE_WIDTH)}</Text>
-                  <Text>
+              <>
+                <box flexDirection="row">
+                  <box width={6}>
+                    <text>GPU{g.index}</text>
+                  </box>
+                  <text fg={C.accent2}>{bar(clamp100(g.utilPct), 100, GAUGE_WIDTH)}</text>
+                  <text>
                     {" "}
                     {pct(g.utilPct)}
                     {g.tempC != null ? `  ${g.tempC}°C` : ""} {g.name}
-                  </Text>
-                </Box>
-                <Box>
-                  <Box width={6}>
-                    <Text>{vramLabel}</Text>
-                  </Box>
-                  <Text color="blue">{bar(g.vramUsed, g.vramTotal, GAUGE_WIDTH)}</Text>
-                  <Text>
+                  </text>
+                </box>
+                <box flexDirection="row">
+                  <box width={6}>
+                    <text>{vramLabel}</text>
+                  </box>
+                  <text fg={C.info}>{bar(g.vramUsed, g.vramTotal, GAUGE_WIDTH)}</text>
+                  <text>
                     {" "}
                     {humanBytes(g.vramUsed)} / {humanBytes(g.vramTotal)}
-                  </Text>
-                </Box>
-              </React.Fragment>
+                  </text>
+                </box>
+              </>
             );
-          })
-        : null}
-    </Box>
+          }}
+        </For>
+      </Show>
+    </box>
   );
 
   return (
-    <Box flexDirection="column" borderStyle="round" paddingX={1}>
-      <Box>
-        <Text bold>🦙 llamactl</Text>
-        <Text>  </Text>
-        {connected ? (
-          <Text color="green">● connected to daemon</Text>
-        ) : (
-          <Text color="yellow">○ connecting…</Text>
-        )}
-        {llamaServer?.found && llamaServer.version ? (
-          <Text dimColor>{`  llama-server ${llamaServer.version}`}</Text>
-        ) : null}
-        {activeInstallName ? (
-          <Text color="cyan">{`  ▸ ${activeInstallName}`}</Text>
-        ) : null}
-      </Box>
+    <box flexDirection="column" border borderStyle="rounded" borderColor={C.border} paddingX={1}>
+      <box flexDirection="row">
+        <text fg={C.accent} attributes={TextAttributes.BOLD}>🦙 llamactl</text>
+        <text>{"  "}</text>
+        <Show
+          when={props.connected}
+          fallback={<text fg={C.warning}>○ connecting…</text>}
+        >
+          <text fg={C.success}>● connected to daemon</text>
+        </Show>
+        <Show when={props.llamaServer?.found && props.llamaServer.version}>
+          <text attributes={TextAttributes.DIM}>{`  llama-server ${props.llamaServer!.version}`}</text>
+        </Show>
+        <Show when={props.activeInstallName}>
+          <text fg={C.accent}>{`  ▸ ${props.activeInstallName}`}</text>
+        </Show>
+      </box>
 
       {/* Two columns: live gauges on the left, daemon facts on the right. */}
-      <Box flexDirection="row">
+      <box flexDirection="row">
         {gauges}
-        {daemonRows.length > 0 ? (
-          <Box
+        <Show when={daemonRows().length > 0}>
+          <box
             flexDirection="column"
             marginLeft={2}
             paddingLeft={2}
-            borderStyle="round"
-            borderColor="gray"
-            borderTop={false}
-            borderRight={false}
-            borderBottom={false}
+            border={["left"]}
+            borderStyle="rounded"
+            borderColor={C.muted}
           >
-            {daemonRows.map(([label, value]) => (
-              <Box key={label}>
-                <Box width={11}>
-                  <Text dimColor>{label}</Text>
-                </Box>
-                <Text>{value}</Text>
-              </Box>
-            ))}
-          </Box>
-        ) : null}
-      </Box>
+            <For each={daemonRows()}>
+              {([label, value]) => (
+                <box flexDirection="row">
+                  <box width={11}>
+                    <text attributes={TextAttributes.DIM}>{label}</text>
+                  </box>
+                  <text>{value}</text>
+                </box>
+              )}
+            </For>
+          </box>
+        </Show>
+      </box>
 
-      {llamaServer && !llamaServer.found ? (
-        <Box>
-          <Text color="red">
-            ⚠ llama-server not found ({llamaServer.path}) — set llamaServerPath or add it to PATH
-          </Text>
-        </Box>
-      ) : null}
+      <Show when={props.llamaServer && !props.llamaServer.found}>
+        <box flexDirection="row">
+          <text fg={C.danger}>
+            ⚠ llama-server not found ({props.llamaServer!.path}) — set llamaServerPath or add it to PATH
+          </text>
+        </box>
+      </Show>
 
-      {error ? (
-        <Box>
-          <Text color="red">⚠ {error}</Text>
-        </Box>
-      ) : null}
-    </Box>
+      <Show when={props.error}>
+        <box flexDirection="row">
+          <text fg={C.danger}>⚠ {props.error}</text>
+        </box>
+      </Show>
+    </box>
   );
 }
-
-export const ResourceHeader = React.memo(ResourceHeaderImpl);

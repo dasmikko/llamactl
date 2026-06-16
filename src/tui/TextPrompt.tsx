@@ -1,13 +1,15 @@
 /**
  * A minimal single-line text prompt modal. Hand-rolled controlled input via
- * useInput (no extra deps), matching the BuildForm/Filter idioms: typing edits
- * the value, Enter submits a non-empty value, Esc cancels.
+ * useKeyboard (no extra deps), matching the BuildForm/Filter idioms: typing
+ * edits the value, Enter submits a non-empty value, Esc cancels.
  */
 
-import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { createSignal } from "solid-js";
+import { TextAttributes } from "@opentui/core";
+import { useKeyboard } from "@opentui/solid";
 import { ShortcutBar } from "./ShortcutBar.tsx";
 import { editText, CursorText } from "./textinput.tsx";
+import { C } from "./theme.ts";
 
 export interface TextPromptProps {
   title: string;
@@ -19,26 +21,20 @@ export interface TextPromptProps {
   columns: number;
 }
 
-export function TextPrompt({
-  title,
-  initialValue = "",
-  onSubmit,
-  onCancel,
-  columns,
-}: TextPromptProps): React.ReactElement {
-  const [value, setValue] = useState(initialValue);
-  const [cursor, setCursor] = useState(initialValue.length);
+export function TextPrompt(props: TextPromptProps) {
+  const [value, setValue] = createSignal(props.initialValue ?? "");
+  const [cursor, setCursor] = createSignal((props.initialValue ?? "").length);
 
-  useInput((input, key) => {
-    if (key.escape) {
-      onCancel();
+  useKeyboard((key) => {
+    if (key.name === "escape") {
+      props.onCancel();
       return;
     }
-    if (key.return) {
-      if (value.trim() !== "") onSubmit(value.trim());
+    if (key.name === "return" || key.name === "enter") {
+      if (value().trim() !== "") props.onSubmit(value().trim());
       return;
     }
-    const next = editText({ value, cursor }, input, key);
+    const next = editText({ value: value(), cursor: cursor() }, key);
     if (next) {
       setValue(next.value);
       setCursor(next.cursor);
@@ -46,26 +42,26 @@ export function TextPrompt({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
-        {title}
-      </Text>
-      <Box marginTop={1}>
+    <box flexDirection="column" border borderStyle="rounded" borderColor={C.border} backgroundColor={C.surface} paddingX={1}>
+      <text fg={C.accent} attributes={TextAttributes.BOLD}>
+        {props.title}
+      </text>
+      <box marginTop={1}>
         <CursorText
-          value={value}
-          cursor={cursor}
+          value={value()}
+          cursor={cursor()}
           focused
-          width={Math.max(8, columns - 4 - 1)}
+          width={Math.max(8, props.columns - 4 - 1)}
         />
-      </Box>
-      <Box marginTop={1}>
+      </box>
+      <box marginTop={1}>
         <ShortcutBar
           items={[
             { key: "Enter", desc: "save" },
             { key: "Esc", desc: "cancel" },
           ]}
         />
-      </Box>
-    </Box>
+      </box>
+    </box>
   );
 }
