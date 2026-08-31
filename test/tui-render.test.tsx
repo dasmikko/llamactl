@@ -161,6 +161,27 @@ test("ModelInfo shows every set spec field, including extraFlags", async () => {
   expect(frame).toContain("--verbose");
 });
 
+test("ModelInfo surfaces startup warnings scraped from the log", async () => {
+  const row = mkRow({
+    running: {
+      modelId: "m1",
+      name: "Llama-3-8B",
+      path: "/models/llama3.gguf",
+      pid: 4242,
+      port: 8080,
+      status: "ready",
+      startedAt: Date.now() - 10_000,
+      restarts: 0,
+      logPath: "/logs/x.log",
+      spec: { model: "m1" },
+      warnings: ["error: srv load_model: failed to create MTP context"],
+    } as never,
+  });
+  const frame = await frameOf(() => <ModelInfo row={row} now={Date.now()} />);
+  expect(frame).toContain("Startup warnings");
+  expect(frame).toContain("failed to create MTP context");
+});
+
 test("HelpOverlay renders", async () => {
   const frame = await frameOf(() => <HelpOverlay />);
   expect(frame.toLowerCase()).toContain("help");

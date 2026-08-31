@@ -15,7 +15,7 @@ live CPU / RAM / GPU / VRAM (+ temperatures). There is also a full headless CLI.
 bun install
 bun test                 # full suite (uses a fake llama-server; no real model needed)
 bun test test/spec.test.ts   # a single file
-bun run typecheck        # bunx tsc --noEmit (strict; noUnusedLocals on)
+bun run typecheck        # tsc --noEmit (strict; noUnusedLocals on; covers src + test)
 bun run build            # scripts/build.ts → Bun.build + @opentui/solid plugin → native binary
 bun run start            # run the TUI from source (= bun --preload @opentui/solid/preload src/index.ts)
 ```
@@ -31,6 +31,11 @@ otherwise bake it into `--compile` and the binary would fail at startup).
 Always run **both** `bun run typecheck` and `bun test` before considering a change
 done. `tsc` strictness (`noUnusedLocals`/`noUnusedParameters`) catches dead
 imports the tests won't.
+
+⚠️ The script must invoke `tsc` directly, NOT `bunx tsc` — `bunx tsc --noEmit`
+exits 0 without checking a single file, so for a while typechecking was silently
+a no-op and `test/` had accumulated real type errors. If `bun run typecheck`
+ever passes suspiciously fast, check it still says `$ tsc --noEmit`.
 
 ## Architecture
 
@@ -106,6 +111,24 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
   saved profile / + New) and `e` opens the profile manager (switch / create /
   edit / delete) — both are `ProfileDialog` (`src/tui/ProfileDialog.tsx`). Only an
   *orphan* profile (its model isn't discovered) still gets its own standalone row.
+- **Companion GGUFs are not runnable rows.** Some files in a repo are inputs to
+  another model, not models themselves: a vision projector (`kind: "vision"`,
+  passed via `--mmproj`) and an MTP/NextN head (`kind: "mtp"`, passed via
+  `--spec-draft-model`). `runnableModels()` hides both from the catalog. MTP
+  heads are detected by `{arch}.nextn_predict_layers` in the GGUF metadata —
+  the exact key llama.cpp gates `--spec-type draft-mtp` on — with the published
+  naming convention (`MTP/mtp-*.gguf`) as a fallback for when that key sits past
+  our 1 MiB read window. `findMtpHead()` pairs a head to its base model (same
+  repo + quant, then same repo, then proximity), and the supervisor uses it to
+  auto-fill `specDraftModel` when a spec asks for `--spec-type draft-mtp`
+  without naming a head. This matters because llama.cpp **fails soft** here: no
+  head ⇒ one warning, then it serves with speculation silently disabled.
+- **Startup warnings are surfaced, not buried.** After `/health` first succeeds,
+  the supervisor scrapes `W`/`E` lines out of the child's log
+  (`parseLogWarnings`, a pure exported helper) onto `RunningModel.warnings`. The
+  TUI marks the row (`ready!`, painted amber) and lists the lines in `ModelInfo`.
+  Several llama-server misconfigurations only ever announce themselves this way
+  — a missing MTP head, `--gpu-layers` on a build without GPU support.
 - **Model display names** are the raw GGUF filename stem (shard suffix removed,
   quant + separators kept) — see `friendlyName` in `src/discovery/models.ts`.
 - **TUI is SolidJS + opentui** (migrated from React + Ink). Conventions so you

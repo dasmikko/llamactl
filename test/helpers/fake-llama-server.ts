@@ -89,7 +89,7 @@ export function startFakeServer(opts: FakeServerOptions = {}): FakeServer {
           messages?: { role?: string; content?: unknown }[];
         } = {};
         try {
-          body = await req.json();
+          body = (await req.json()) as typeof body;
         } catch {
           /* tolerate empty body */
         }

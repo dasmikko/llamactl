@@ -61,7 +61,12 @@ interface ColumnDef {
 }
 
 function statusText(row: Row): string {
-  if (row.running) return row.running.status;
+  // A "!" marks a child that started with warnings in its log — it serves fine
+  // but may be quietly ignoring what was asked (see ModelInfo for the lines).
+  if (row.running) {
+    const warned = (row.running.warnings ?? []).length > 0;
+    return warned ? `${row.running.status}!` : row.running.status;
+  }
   const n = row.profiles.length;
   if (n > 0) return n === 1 ? "1 prof" : `${n} profs`;
   return "—";
@@ -165,6 +170,9 @@ const NO_REPO_LABEL = "local models";
 
 function statusColor(row: Row): string | undefined {
   if (!row.running) return undefined;
+  if ((row.running.warnings ?? []).length > 0 && row.running.status === "ready") {
+    return C.warning; // healthy but warned — don't paint it a clean green
+  }
   switch (row.running.status) {
     case "ready":
       return C.success;

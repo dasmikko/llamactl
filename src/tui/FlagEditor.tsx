@@ -91,6 +91,7 @@ type FieldId =
   | "mlock"
   | "mmap"
   | "mmproj"
+  | "specDraftModel"
   | "chatTemplate"
   | "host"
   | "port"
@@ -131,6 +132,7 @@ const FIELDS: FieldDef[] = [
   { id: "mlock", label: "mlock" },
   { id: "mmap", label: "mmap" },
   { id: "mmproj", label: "mmproj" },
+  { id: "specDraftModel", label: "Draft model" },
   { id: "chatTemplate", label: "Chat tmpl" },
   { id: "host", label: "Host" },
   { id: "port", label: "Port" },
@@ -234,6 +236,11 @@ const INFO: Record<FieldId, FieldInfo> = {
   mmproj: {
     flag: "--mmproj",
     desc: "Path to a multimodal projector file. Required to run vision (multimodal) models.",
+  },
+  specDraftModel: {
+    flag: "--spec-draft-model",
+    desc: "Path to the draft model for speculative decoding. For --spec-type draft-mtp this is the model's MTP head, which some repos ship as a separate GGUF beside the main quant.",
+    note: "Left empty, llamactl auto-finds the repo's MTP head for draft-mtp.",
   },
   chatTemplate: {
     flag: "--chat-template",
@@ -391,6 +398,7 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
     ubatchSize: numStr(props.initialSpec.ubatchSize),
     parallel: numStr(props.initialSpec.parallel),
     mmproj: props.initialSpec.mmproj ?? "",
+    specDraftModel: props.initialSpec.specDraftModel ?? "",
     chatTemplate: props.initialSpec.chatTemplate ?? "",
     host: props.initialSpec.host ?? "",
     port: numStr(props.initialSpec.port),
@@ -475,6 +483,8 @@ export function FlagEditor(props: FlagEditorProps): JSX.Element {
       cacheTypeK: enumValue("cacheTypeK"),
       cacheTypeV: enumValue("cacheTypeV"),
       mmproj: vals.mmproj.trim() === "" ? undefined : vals.mmproj.trim(),
+      specDraftModel:
+        vals.specDraftModel.trim() === "" ? undefined : vals.specDraftModel.trim(),
       chatTemplate: vals.chatTemplate.trim() === "" ? undefined : vals.chatTemplate.trim(),
       host: vals.host.trim() === "" ? undefined : vals.host.trim(),
       port: parseNum(vals.port),

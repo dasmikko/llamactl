@@ -57,6 +57,23 @@ describe("readGgufMeta", () => {
     expect(meta.kind).toBe("text");
   });
 
+  test("reads nextn_predict_layers (the MTP gate)", async () => {
+    const p = await writeGguf(dir, "mtp.gguf", [
+      kvStr("general.architecture", "qwen35"),
+      kvU32("qwen35.nextn_predict_layers", 1),
+    ]);
+    const meta = await readGgufMeta(p);
+    expect(meta.arch).toBe("qwen35");
+    expect(meta.nextnLayers).toBe(1);
+  });
+
+  test("nextnLayers is null when the key is absent", async () => {
+    const p = await writeGguf(dir, "plain.gguf", [
+      kvStr("general.architecture", "qwen35"),
+    ]);
+    expect((await readGgufMeta(p)).nextnLayers).toBeNull();
+  });
+
   test("clip architecture ⇒ vision", async () => {
     const p = await writeGguf(dir, "v.gguf", [kvStr("general.architecture", "clip")]);
     const meta = await readGgufMeta(p);

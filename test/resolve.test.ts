@@ -6,6 +6,9 @@ import {
   resolveModel,
   parseRepo,
   isProjector,
+  isMtpFile,
+  isMtpHead,
+  findMtpHead,
   runnableModels,
 } from "../src/discovery/models.ts";
 import { LlamactlError, isLlamactlError } from "../src/errors.ts";
@@ -45,6 +48,7 @@ const models: Model[] = [
     kvDim: null,
     nEmbd: null,
     nHeads: null,
+    nextnLayers: null,
     kind: "text",
     org: null,
     repo: null,
@@ -63,6 +67,7 @@ const models: Model[] = [
     kvDim: null,
     nEmbd: null,
     nHeads: null,
+    nextnLayers: null,
     kind: "text",
     org: null,
     repo: null,
@@ -81,6 +86,7 @@ const models: Model[] = [
     kvDim: null,
     nEmbd: null,
     nHeads: null,
+    nextnLayers: null,
     kind: "text",
     org: null,
     repo: null,
@@ -181,6 +187,7 @@ describe("runnableModels", () => {
     kvDim: null,
     nEmbd: null,
     nHeads: null,
+    nextnLayers: null,
     kind: "vision",
     org: null,
     repo: null,
@@ -195,5 +202,81 @@ describe("runnableModels", () => {
     const filtered = runnableModels([...models, projector]);
     expect(filtered.map((m) => m.id)).not.toContain("llava-mmproj-f16");
     expect(filtered.length).toBe(models.length);
+  });
+});
+
+
+describe("MTP heads", () => {
+  const base = (over: Partial<Model> = {}): Model => ({
+    id: "qwen3-8-27b-q4-k-m",
+    name: "Qwen3.8-27B-Q4_K_M",
+    path: "/hf/models--unsloth--Qwen3.8-27B-GGUF/snapshots/abc/Qwen3.8-27B-Q4_K_M.gguf",
+    sizeBytes: 16_000_000_000,
+    quant: "Q4_K_M",
+    source: "huggingface",
+    mtimeMs: 1,
+    arch: "qwen35",
+    contextLength: 262144,
+    nLayers: 64,
+    kvDim: null,
+    nEmbd: null,
+    nHeads: null,
+    nextnLayers: null,
+    kind: "text",
+    org: "unsloth",
+    repo: "unsloth/Qwen3.8-27B-GGUF",
+    ...over,
+  });
+
+  const head = (over: Partial<Model> = {}): Model =>
+    base({
+      id: "mtp-qwen3-8-27b-q4-0",
+      name: "mtp-Qwen3.8-27B-Q4_0",
+      path: "/hf/models--unsloth--Qwen3.8-27B-GGUF/snapshots/abc/MTP/mtp-Qwen3.8-27B-Q4_0.gguf",
+      sizeBytes: 500_000_000,
+      quant: "Q4_0",
+      nextnLayers: 1,
+      kind: "mtp",
+      ...over,
+    });
+
+  test("isMtpFile detects by nextn metadata", () => {
+    expect(isMtpFile("/models/anything.gguf", 1)).toBe(true);
+    expect(isMtpFile("/models/anything.gguf", 0)).toBe(false);
+    expect(isMtpFile("/models/anything.gguf", null)).toBe(false);
+  });
+
+  test("isMtpFile falls back to the published naming convention", () => {
+    // The metadata key can sit past our read window, so naming is a backstop.
+    expect(isMtpFile("/r/MTP/mtp-Qwen3.8-27B-Q4_0.gguf", null)).toBe(true);
+    expect(isMtpFile("/r/MTP/whatever.gguf", null)).toBe(true);
+    expect(isMtpFile("/r/Qwen3.8-27B-Q4_K_M.gguf", null)).toBe(false);
+    // "mtp" inside an unrelated word must not trigger it.
+    expect(isMtpFile("/r/mtpx-model.gguf", null)).toBe(false);
+  });
+
+  test("runnableModels hides MTP heads from the catalog", () => {
+    const filtered = runnableModels([base(), head()]);
+    expect(filtered.map((m) => m.id)).toEqual(["qwen3-8-27b-q4-k-m"]);
+    expect(isMtpHead(head())).toBe(true);
+    expect(isMtpHead(base())).toBe(false);
+  });
+
+  test("findMtpHead pairs a model with its repo's head", () => {
+    const h = head();
+    expect(findMtpHead([base(), h], base())?.path).toBe(h.path);
+  });
+
+  test("findMtpHead prefers an exact quant match within the repo", () => {
+    const q4_0 = head({ id: "h-q4-0", quant: "Q4_0" });
+    const q8 = head({ id: "h-q8", quant: "Q8_0", path: "/hf/models--unsloth--Qwen3.8-27B-GGUF/snapshots/abc/MTP/mtp-Qwen3.8-27B-Q8_0.gguf" });
+    const model = base({ quant: "Q8_0" });
+    expect(findMtpHead([model, q4_0, q8], model)?.id).toBe("h-q8");
+  });
+
+  test("findMtpHead returns null when nothing matches", () => {
+    const other = head({ repo: "someone/else", path: "/elsewhere/MTP/mtp-other.gguf" });
+    expect(findMtpHead([base(), other], base())).toBeNull();
+    expect(findMtpHead([base()], base())).toBeNull();
   });
 });

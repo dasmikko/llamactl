@@ -46,6 +46,7 @@ function specLines(spec: LaunchSpec): string[] {
   add("--ubatch-size", spec.ubatchSize);
   add("--parallel", spec.parallel);
   add("--mmproj", spec.mmproj);
+  add("--spec-draft-model", spec.specDraftModel);
   // Enable-only flags: --mlock is emitted when on, --no-mmap when mmap is off.
   if (spec.mlock === "on") out.push("--mlock");
   if (spec.mmap === "off") out.push("--no-mmap");
@@ -126,6 +127,17 @@ export function ModelInfo(props: ModelInfoProps) {
             />
           </Show>
           <Field label="Log" value={running()!.logPath} />
+        </box>
+      </Show>
+
+      {/* Soft failures scraped from the startup log: llama-server warns and
+          serves anyway, so a "ready" child can be quietly misconfigured. */}
+      <Show when={(running()?.warnings ?? []).length > 0}>
+        <box marginTop={1} flexDirection="column">
+          <text fg={C.warning} attributes={TextAttributes.BOLD}>Startup warnings</text>
+          <For each={running()!.warnings!}>
+            {(w) => <text fg={C.warning}>{"  " + w}</text>}
+          </For>
         </box>
       </Show>
 

@@ -78,6 +78,9 @@ Options:
   --cache-type-v <t>   KV-cache quant for V (f16, q8_0, q4_0, …)
   --host <addr>        Bind host for the instance (default 127.0.0.1)
   --port <n>           Pin the instance port (default: auto)
+  --spec-draft-model <p>  Draft model for speculative decoding (--spec-draft-model);
+                       for --spec-type draft-mtp llamactl auto-finds the repo's
+                       MTP head when this is omitted
   --extra-args "<a b>" Extra llama-server args, space-separated
   --name <id>          Name for 'instance add' or 'install'
   --ref <git-ref>      Git ref to build for 'install' (branch/tag/commit, or a PR: pr/123 | pull/123/head)

@@ -7,7 +7,7 @@
 
 import { lstat, readdir, realpath, stat, unlink } from "node:fs/promises";
 import { watch } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 
 import type { Model, ModelResolver, ModelSource } from "../types.ts";
@@ -288,7 +288,8 @@ export async function discoverModels(opts?: DiscoverOptions): Promise<Model[]> {
       kvDim: meta.kvDim,
       nEmbd: meta.nEmbd,
       nHeads: meta.nHeads,
-      kind: meta.kind,
+      nextnLayers: meta.nextnLayers,
+      kind: isMtpFile(f.path, meta.nextnLayers) ? "mtp" : meta.kind,
       org: parseOrg(f.path),
       repo: parseRepo(f.path),
     });
@@ -307,9 +308,61 @@ export function isProjector(model: Model): boolean {
   return model.kind === "vision";
 }
 
-/** Catalog view: discovered models minus non-runnable projector files. */
+/**
+ * An MTP / NextN head published as its own GGUF, the speculative-decoding
+ * companion passed via `--spec-draft-model`. Several repos ship it beside the
+ * main quant rather than inside it (e.g. unsloth's `MTP/mtp-<model>-Q4_0.gguf`),
+ * where it is NOT independently runnable — so the catalog hides it the same way
+ * it hides projectors.
+ *
+ * Detected by GGUF metadata first (`{arch}.nextn_predict_layers` non-zero, the
+ * exact key llama.cpp gates MTP on) and by the published naming convention as a
+ * fallback, since the key sits past our metadata read window on some files.
+ */
+export function isMtpFile(path: string, nextnLayers: number | null): boolean {
+  if (nextnLayers != null && nextnLayers > 0) return true;
+  const base = basename(path).toLowerCase();
+  if (/^mtp[-_.]/.test(base) || /[-_.]mtp[-_.]/.test(base)) return true;
+  // A parent directory named exactly "MTP" (the layout unsloth publishes).
+  return path.split(sep).slice(0, -1).some((seg) => seg.toLowerCase() === "mtp");
+}
+
+/** True for a discovered model classified as an MTP head. */
+export function isMtpHead(model: Model): boolean {
+  return model.kind === "mtp";
+}
+
+/** Catalog view: discovered models minus non-runnable companion files. */
 export function runnableModels(models: Model[]): Model[] {
-  return models.filter((m) => !isProjector(m));
+  return models.filter((m) => !isProjector(m) && !isMtpHead(m));
+}
+
+/**
+ * Find the MTP head that belongs to `model`, for auto-filling
+ * `--spec-draft-model`. Candidates are ranked so the most specific match wins:
+ * same quant in the same repo, then any head in the same repo, then one sitting
+ * beside (or one level below) the model file. Returns null when nothing matches
+ * — the caller then leaves the flag unset rather than guessing.
+ */
+export function findMtpHead(models: Model[], model: Model): Model | null {
+  const heads = models.filter(isMtpHead);
+  if (heads.length === 0) return null;
+
+  const sameRepo = model.repo ? heads.filter((h) => h.repo === model.repo) : [];
+  if (model.quant) {
+    const exact = sameRepo.find((h) => h.quant === model.quant);
+    if (exact) return exact;
+  }
+  if (sameRepo.length > 0) return sameRepo[0]!;
+
+  // No repo match (e.g. a loose directory of GGUFs): fall back to proximity —
+  // the same directory, or a subdirectory of it such as "MTP/".
+  const dir = dirname(model.path);
+  const near = heads.filter((h) => {
+    const hd = dirname(h.path);
+    return hd === dir || dirname(hd) === dir;
+  });
+  return near.length === 1 ? near[0]! : null;
 }
 
 /**

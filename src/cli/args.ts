@@ -35,6 +35,7 @@ const VALUE_OPTS = new Set([
   "parallel",
   "alias",
   "mmproj",
+  "spec-draft-model",
   "cache-type-k",
   "cache-type-v",
   "chat-template",

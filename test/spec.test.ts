@@ -122,6 +122,35 @@ describe("specToArgs", () => {
     expect(args[args.indexOf("--mmproj") + 1]).toBe("/mmproj.gguf");
   });
 
+  test("emits --spec-draft-model when set, nothing when absent", () => {
+    const args = specToArgs({
+      modelPath: "/x.gguf", port: 1, configArgs: [],
+      spec: { model: "m", specDraftModel: "/MTP/mtp-model-Q4_0.gguf" },
+    });
+    expect(args[args.indexOf("--spec-draft-model") + 1]).toBe("/MTP/mtp-model-Q4_0.gguf");
+    const none = specToArgs({
+      modelPath: "/x.gguf", port: 1, configArgs: [], spec: { model: "m" },
+    });
+    expect(none).not.toContain("--spec-draft-model");
+  });
+
+  test("a curated --spec-draft-model in extraFlags can't duplicate the field", () => {
+    // The alias spellings are curated too, so a stray entry is dropped.
+    const args = specToArgs({
+      modelPath: "/x.gguf", port: 1, configArgs: [],
+      spec: {
+        model: "m",
+        specDraftModel: "/a.gguf",
+        extraFlags: { "--spec-draft-model": "/b.gguf", "--model-draft": "/c.gguf", "--spec-type": "draft-mtp" },
+      },
+    });
+    expect(args.filter((a) => a === "--spec-draft-model").length).toBe(1);
+    expect(args).not.toContain("/b.gguf");
+    expect(args).not.toContain("/c.gguf");
+    // A non-curated spec flag still passes through.
+    expect(args[args.indexOf("--spec-type") + 1]).toBe("draft-mtp");
+  });
+
   test("mlock 'on' emits --mlock; mmap 'off' emits --no-mmap; both unset emit nothing", () => {
     const on = specToArgs({
       modelPath: "/x.gguf", port: 1, configArgs: [],

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 import type { Config, Model, ModelResolver } from "../src/types.ts";
 import { LlamactlError, isLlamactlError } from "../src/errors.ts";
-import { Supervisor, type SupervisorOptions } from "../src/supervisor/process.ts";
+import { Supervisor, parseLogWarnings, type SupervisorOptions } from "../src/supervisor/process.ts";
 
 const FAKE_SERVER = resolve(import.meta.dir, "helpers/fake-llama-server.ts");
 
@@ -31,6 +31,7 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     kvDim: null,
     nEmbd: null,
     nHeads: null,
+    nextnLayers: null,
     kind: "text",
     org: null,
     repo: null,
@@ -322,4 +323,115 @@ describe("Supervisor", () => {
     expect(isLlamactlError(err)).toBe(true);
     expect((err as LlamactlError).code).toBe("model_not_found");
   }, 15000);
+});
+
+
+describe("MTP draft-model auto-resolution", () => {
+  /** A resolver holding a base model plus its sibling MTP head. */
+  function mtpResolver(): { resolver: ModelResolver; headPath: string } {
+    const base = makeModel({
+      id: "qwen",
+      name: "Qwen",
+      path: "/hf/models--u--Q-GGUF/snapshots/a/Q-Q4_K_M.gguf",
+      quant: "Q4_K_M",
+      repo: "u/Q-GGUF",
+    });
+    const head = makeModel({
+      id: "mtp-qwen",
+      name: "mtp-Qwen",
+      path: "/hf/models--u--Q-GGUF/snapshots/a/MTP/mtp-Q-Q4_0.gguf",
+      quant: "Q4_0",
+      repo: "u/Q-GGUF",
+      kind: "mtp",
+      nextnLayers: 1,
+    });
+    return {
+      headPath: head.path,
+      resolver: {
+        resolve(sel: string): Model {
+          if (sel === base.id || sel === base.name) return base;
+          if (sel === head.id) return head;
+          throw new LlamactlError("model_not_found", `no model for "${sel}"`);
+        },
+        all: () => [base, head],
+      },
+    };
+  }
+
+  test("fills --spec-draft-model when spec-type asks for draft-mtp", async () => {
+    const { resolver, headPath } = mtpResolver();
+    const sup = newSupervisor({ resolver });
+    const running = await sup.start({
+      model: "qwen",
+      extraFlags: { "--spec-type": "draft-mtp" },
+    });
+    expect(running.spec.specDraftModel).toBe(headPath);
+  });
+
+  test("leaves an explicit draft model alone", async () => {
+    const { resolver } = mtpResolver();
+    const sup = newSupervisor({ resolver });
+    const running = await sup.start({
+      model: "qwen",
+      specDraftModel: "/my/own/head.gguf",
+      extraFlags: { "--spec-type": "draft-mtp" },
+    });
+    expect(running.spec.specDraftModel).toBe("/my/own/head.gguf");
+  });
+
+  test("does nothing when draft-mtp wasn't requested", async () => {
+    const { resolver } = mtpResolver();
+    const sup = newSupervisor({ resolver });
+    const running = await sup.start({ model: "qwen" });
+    expect(running.spec.specDraftModel).toBeUndefined();
+  });
+
+  test("recognises draft-mtp inside a comma-separated spec-type list", async () => {
+    const { resolver, headPath } = mtpResolver();
+    const sup = newSupervisor({ resolver });
+    const running = await sup.start({
+      model: "qwen",
+      extraFlags: { "--spec-type": "ngram-simple,draft-mtp" },
+    });
+    expect(running.spec.specDraftModel).toBe(headPath);
+  });
+});
+
+describe("parseLogWarnings", () => {
+  test("lifts llama.cpp's timestamped W/E lines", () => {
+    const log = [
+      "0.00.014.109 I log_info: verbosity = 3",
+      "0.00.315.587 W srv    load_model: [spec] failed to measure MTP context memory",
+      "0.00.974.533 E srv    load_model: failed to create MTP context",
+      "0.00.704.453 I slot   load_model: id  0 | new slot",
+    ].join("\n");
+    expect(parseLogWarnings(log)).toEqual([
+      "warning: srv    load_model: [spec] failed to measure MTP context memory",
+      "error: srv    load_model: failed to create MTP context",
+    ]);
+  });
+
+  test("catches the bare pre-logger warnings too", () => {
+    const log = [
+      "warning: no usable GPU found, --gpu-layers option will be ignored",
+      "warning: one possible reason is that llama.cpp was compiled without GPU support",
+      "0.00.014.109 I log_info: verbosity = 3",
+    ].join("\n");
+    expect(parseLogWarnings(log)).toEqual([
+      "warning: no usable GPU found, --gpu-layers option will be ignored",
+      "warning: one possible reason is that llama.cpp was compiled without GPU support",
+    ]);
+  });
+
+  test("dedupes repeats and returns none for a clean log", () => {
+    const dup = "0.00.1 W a: b\n0.00.2 W a: b\n";
+    expect(parseLogWarnings(dup)).toEqual(["warning: a: b"]);
+    expect(parseLogWarnings("0.00.1 I all good\n")).toEqual([]);
+    expect(parseLogWarnings("")).toEqual([]);
+  });
+
+  test("caps a flood of warnings", () => {
+    const many = Array.from({ length: 50 }, (_, i) => `0.00.${i} W line ${i}`).join("\n");
+    expect(parseLogWarnings(many).length).toBeLessThanOrEqual(12);
+  });
 });

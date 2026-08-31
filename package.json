@@ -11,7 +11,7 @@
     "start": "bun --preload @opentui/solid/preload src/index.ts",
     "test": "bun test",
     "build": "bun run scripts/build.ts",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "private": true,
   "dependencies": {

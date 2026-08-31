@@ -12,8 +12,12 @@ export type ModelSource =
   | "config"
   | "path";
 
-/** Coarse model kind inferred from GGUF metadata + filename. */
-export type ModelKind = "text" | "vision" | "embedding";
+/**
+ * Coarse model kind inferred from GGUF metadata + filename. "vision" and "mtp"
+ * are companion files (a projector, an MTP/NextN head) — they are passed to a
+ * real model via `--mmproj` / `--spec-draft-model` and are not runnable alone.
+ */
+export type ModelKind = "text" | "vision" | "embedding" | "mtp";
 
 /** A `.gguf` model discovered on disk. */
 export interface Model {
@@ -43,6 +47,11 @@ export interface Model {
   nEmbd: number | null;
   /** Attention head count for attention-scratch sizing, or null. */
   nHeads: number | null;
+  /**
+   * MTP / NextN prediction-layer count from GGUF metadata, or null. Non-zero
+   * marks a file that can drive `--spec-type draft-mtp`.
+   */
+  nextnLayers: number | null;
   /** Coarse kind inferred from metadata + filename. */
   kind: ModelKind;
   /** Author/org the model came from (e.g. "unsloth"), derived from the path, or null. */
@@ -81,6 +90,13 @@ export interface LaunchSpec {
   alias?: string;
   /** --mmproj: multimodal projector file, required to run vision models. */
   mmproj?: string;
+  /**
+   * --spec-draft-model (-md): draft model for speculative decoding. For
+   * `--spec-type draft-mtp` this is the MTP/NextN head, which several repos
+   * publish as a GGUF separate from the main quant — without it llama.cpp
+   * warns and silently runs with speculation disabled.
+   */
+  specDraftModel?: string;
   /** --mlock: lock the model in RAM. "on" emits the flag; undefined ⇒ unset. */
   mlock?: "on" | "off";
   /** --no-mmap memory-mapping. "off" emits --no-mmap; undefined ⇒ default (on). */
@@ -148,6 +164,14 @@ export interface RunningModel {
   spec: LaunchSpec;
   /** Version string of the `llama-server` binary, if it could be detected. */
   llamaServerVersion?: string;
+  /**
+   * Warning/error lines scraped from the child's startup log. llama-server
+   * fails soft on a lot of misconfiguration (a missing MTP head, an ignored
+   * --gpu-layers on a CPU-only build) — it warns, carries on, and the user sees
+   * a healthy server that quietly isn't doing what they asked. Surfaced in the
+   * TUI so those don't stay buried in the log file.
+   */
+  warnings?: string[];
 }
 
 /** Fully-resolved runtime configuration (defaults → file → env → flags). */

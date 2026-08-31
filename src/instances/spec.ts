@@ -29,6 +29,9 @@ export const CURATED_FLAGS: ReadonlySet<string> = new Set([
   "--parallel",
   "--alias",
   "--mmproj",
+  "--spec-draft-model",
+  "-md",
+  "--model-draft",
   "--mlock",
   "--mmap",
   "--no-mmap",
@@ -169,6 +172,9 @@ export function specToArgs(opts: {
   if (spec.parallel !== undefined) args.push("--parallel", String(spec.parallel));
   if (spec.alias !== undefined && spec.alias !== "") args.push("--alias", spec.alias);
   if (spec.mmproj !== undefined && spec.mmproj !== "") args.push("--mmproj", spec.mmproj);
+  if (spec.specDraftModel !== undefined && spec.specDraftModel !== "") {
+    args.push("--spec-draft-model", spec.specDraftModel);
+  }
   // --mlock is an enable-only flag; --mmap is on by default, disabled via --no-mmap.
   if (spec.mlock === "on") args.push("--mlock");
   if (spec.mmap === "off") args.push("--no-mmap");

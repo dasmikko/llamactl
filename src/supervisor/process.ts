@@ -24,6 +24,7 @@ import type {
 import { LlamactlError } from "../errors.ts";
 import { findFreePort, isPortFree } from "../net/ports.ts";
 import { applyDefaults, specToArgs, validateSpec } from "../instances/spec.ts";
+import { findMtpHead } from "../discovery/models.ts";
 import { parseLlamaHelp } from "../llama/help.ts";
 
 export interface SupervisorOptions {
@@ -70,6 +71,43 @@ interface Entry {
 }
 
 const GRACE_MS = 3000;
+
+/** Cap on startup warnings kept per child, so a noisy log can't flood the UI. */
+const MAX_WARNINGS = 12;
+
+/**
+ * Pull the warning/error lines out of a llama-server log.
+ *
+ * llama-server fails soft on plenty of misconfiguration — a missing MTP head,
+ * `--gpu-layers` on a build without GPU support — logging a warning and serving
+ * anyway. The result looks healthy while quietly not doing what was asked, so
+ * these get lifted onto the RunningModel for the TUI.
+ *
+ * Two line shapes are recognised: llama.cpp's timestamped `0.00.704.443 W msg`
+ * (and its `E` counterpart), and the bare `warning:` / `error:` lines printed
+ * before its logger is up. Pure so it can be tested against fixtures.
+ */
+export function parseLogWarnings(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line === "") continue;
+    const stamped = line.match(/^\d+\.\d+\.\d+(?:\.\d+)?\s+([WE])\s+(.*)$/);
+    if (stamped) out.push(`${stamped[1] === "E" ? "error" : "warning"}: ${stamped[2]!.trim()}`);
+    else if (/^(warning|error):/i.test(line)) out.push(line);
+    if (out.length >= MAX_WARNINGS) break;
+  }
+  return [...new Set(out)];
+}
+
+/** {@link parseLogWarnings} over a log file. Best-effort: unreadable ⇒ none. */
+async function scanLogWarnings(logPath: string): Promise<string[]> {
+  try {
+    return parseLogWarnings(await Bun.file(logPath).text());
+  } catch {
+    return [];
+  }
+}
 
 export class Supervisor implements ISupervisor {
   private readonly config: Config;
@@ -137,7 +175,7 @@ export class Supervisor implements ISupervisor {
       );
     }
 
-    const resolvedSpec = applyDefaults(spec, this.config);
+    const resolvedSpec = this.resolveDraftModel(model, applyDefaults(spec, this.config));
     const entry = await this.spawnChild(model, resolvedSpec);
     this.children.set(model.id, entry);
     // Proactively watch /health in the background so the status flips to
@@ -505,6 +543,27 @@ export class Supervisor implements ISupervisor {
   }
 
   /**
+   * Fill in `--spec-draft-model` for MTP speculative decoding when the user
+   * asked for it but didn't name a head file.
+   *
+   * `--spec-type draft-mtp` needs the model's MTP/NextN layers, and several
+   * repos publish those as a separate GGUF beside the main quant. Point
+   * llama.cpp at a model without them and it warns once and runs with
+   * speculation silently disabled — so when discovery has found the matching
+   * head, wire it up rather than let the launch quietly do nothing. An explicit
+   * `specDraftModel` always wins; an unmatched head leaves the spec untouched.
+   */
+  private resolveDraftModel(model: Model, spec: LaunchSpec): LaunchSpec {
+    if (spec.specDraftModel !== undefined && spec.specDraftModel !== "") return spec;
+    const specType = spec.extraFlags?.["--spec-type"];
+    if (typeof specType !== "string" || !specType.split(",").includes("draft-mtp")) return spec;
+
+    const head = findMtpHead(this.resolver.all(), model);
+    if (!head) return spec;
+    return { ...spec, specDraftModel: head.path };
+  }
+
+  /**
    * Poll `/health` in the background until the child reports ready, then flip
    * its status to "ready". Self-cancels if the entry is stopped, replaced,
    * crashes, or the readiness window elapses (a child that never serves health
@@ -520,8 +579,13 @@ export class Supervisor implements ISupervisor {
       if (entry.model.status !== "starting") return; // ready, crashed, or stopping
 
       if (await this.probeHealth(entry.model.port)) {
+        // The child has finished loading, so its startup log is complete —
+        // scrape the soft failures (missing MTP head, ignored --gpu-layers)
+        // before flipping to a status that otherwise looks entirely healthy.
+        const warnings = await scanLogWarnings(entry.model.logPath);
         // Re-check identity/state after the await before committing the flip.
         if (this.children.get(entry.model.modelId) === entry && entry.model.status === "starting") {
+          if (warnings.length > 0) entry.model.warnings = warnings;
           entry.model.status = "ready";
         }
         return;

@@ -62,6 +62,8 @@ function flagsToSpec(model: string, args: ParsedArgs): LaunchSpec {
   if (alias !== undefined) spec.alias = alias;
   const mmproj = strOpt(args, "mmproj");
   if (mmproj !== undefined) spec.mmproj = mmproj;
+  const draft = strOpt(args, "spec-draft-model");
+  if (draft !== undefined) spec.specDraftModel = draft;
   if (args.options["flash-attn"] === true) spec.flashAttn = "on";
   else if (args.options["flash-attn"] === false) spec.flashAttn = "off";
   if (args.options["reasoning"] === true) spec.reasoning = "on";
@@ -248,7 +250,7 @@ async function cmdInstanceEdit(args: ParsedArgs, config: Config, mode: OutputMod
 /** Whether any spec-shaping flag is present on the args. */
 function hasSpecFlags(args: ParsedArgs): boolean {
   const keys = ["ctx", "ngl", "gpu-layers", "n-cpu-moe", "ncmoe", "threads", "batch-size",
-    "ubatch-size", "parallel", "alias", "mmproj", "mlock", "mmap",
+    "ubatch-size", "parallel", "alias", "mmproj", "spec-draft-model", "mlock", "mmap",
     "flash-attn", "reasoning", "jinja", "cache-type-k", "cache-type-v", "chat-template",
     "host", "port", "extra-args"];
   return keys.some((k) => args.options[k] !== undefined);

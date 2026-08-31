@@ -17,6 +17,7 @@ function model(id: string, name = id): Model {
     kvDim: 128,
     nEmbd: null,
     nHeads: null,
+    nextnLayers: null,
     kind: "text",
     org: null,
     repo: null,

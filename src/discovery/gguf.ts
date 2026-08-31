@@ -22,6 +22,13 @@ export interface GgufMeta {
   nEmbd: number | null;
   /** Attention head count ({arch}.attention.head_count), for attention-scratch sizing, or null. */
   nHeads: number | null;
+  /**
+   * MTP / NextN prediction-layer count ({arch}.nextn_predict_layers), or null
+   * when the key is absent. llama.cpp gates `--spec-type draft-mtp` on this
+   * being non-zero (`llama_init_from_model`: "context type MTP requested but
+   * model doesn't contain MTP layers"), so a file carrying it is the MTP head.
+   */
+  nextnLayers: number | null;
 }
 
 /** GGUF metadata value type tags. */
@@ -163,7 +170,7 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
 
   // Magic "GGUF" (0x47 0x47 0x55 0x46, little-endian uint32 0x46554747).
   if (view.byteLength < 24 || c.u32() !== 0x46554747) {
-    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null, nEmbd: null, nHeads: null };
+    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null, nEmbd: null, nHeads: null, nextnLayers: null };
   }
   c.u32(); // version
   c.u64(); // tensor count
@@ -171,6 +178,7 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
 
   let arch: string | null = null;
   let contextLength: number | null = null;
+  let nextnLayers: number | null = null;
   let sawVision = false;
   let sawPooling = false;
   // Hyperparameters used to size the KV cache. All sit before the tokenizer
@@ -218,6 +226,8 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
         nHead = readNum(type) ?? nHead;
       } else if (/\.attention\.key_length$/.test(key)) {
         keyLength = readNum(type) ?? keyLength;
+      } else if (/\.nextn_predict_layers$/.test(key)) {
+        nextnLayers = readNum(type) ?? nextnLayers;
       } else {
         skipValue(c, type);
       }
@@ -241,7 +251,7 @@ function parseHeader(buf: ArrayBuffer, path: string): GgufMeta {
       ? "embedding"
       : "text";
 
-  return { arch, contextLength, kind, nLayers, kvDim, nEmbd, nHeads: nHead };
+  return { arch, contextLength, kind, nLayers, kvDim, nEmbd, nHeads: nHead, nextnLayers };
 }
 
 /**
@@ -254,6 +264,6 @@ export async function readGgufMeta(path: string): Promise<GgufMeta> {
     const buf = await slice.arrayBuffer();
     return parseHeader(buf, path);
   } catch {
-    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null, nEmbd: null, nHeads: null };
+    return { arch: null, contextLength: null, kind: kindFromName(path), nLayers: null, kvDim: null, nEmbd: null, nHeads: null, nextnLayers: null };
   }
 }
