@@ -133,6 +133,34 @@ test("ModelInfo renders model details", async () => {
   expect(frame).toContain("Llama-3-8B");
 });
 
+test("ModelInfo shows every set spec field, including extraFlags", async () => {
+  const row = mkRow({
+    instance: {
+      id: "p1",
+      name: "fast",
+      createdAt: 0,
+      updatedAt: 0,
+      spec: {
+        model: "m1",
+        ubatchSize: 512,
+        parallel: 4,
+        alias: "llama3",
+        mlock: "on",
+        mmap: "off",
+        extraFlags: { "--spec-type": "draft-mtp", "--verbose": true },
+      },
+    } as never,
+  });
+  const frame = await frameOf(() => <ModelInfo row={row} now={Date.now()} />);
+  expect(frame).toContain("--ubatch-size 512");
+  expect(frame).toContain("--parallel 4");
+  expect(frame).toContain("--alias llama3");
+  expect(frame).toContain("--mlock");
+  expect(frame).toContain("--no-mmap");
+  expect(frame).toContain("--spec-type draft-mtp");
+  expect(frame).toContain("--verbose");
+});
+
 test("HelpOverlay renders", async () => {
   const frame = await frameOf(() => <HelpOverlay />);
   expect(frame.toLowerCase()).toContain("help");

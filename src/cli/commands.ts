@@ -248,6 +248,7 @@ async function cmdInstanceEdit(args: ParsedArgs, config: Config, mode: OutputMod
 /** Whether any spec-shaping flag is present on the args. */
 function hasSpecFlags(args: ParsedArgs): boolean {
   const keys = ["ctx", "ngl", "gpu-layers", "n-cpu-moe", "ncmoe", "threads", "batch-size",
+    "ubatch-size", "parallel", "alias", "mmproj", "mlock", "mmap",
     "flash-attn", "reasoning", "jinja", "cache-type-k", "cache-type-v", "chat-template",
     "host", "port", "extra-args"];
   return keys.some((k) => args.options[k] !== undefined);
