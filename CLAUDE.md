@@ -115,14 +115,17 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
   another model, not models themselves: a vision projector (`kind: "vision"`,
   passed via `--mmproj`) and an MTP/NextN head (`kind: "mtp"`, passed via
   `--spec-draft-model`). `runnableModels()` hides both from the catalog. MTP
-  heads are detected by `{arch}.nextn_predict_layers` in the GGUF metadata —
-  the exact key llama.cpp gates `--spec-type draft-mtp` on — with the published
-  naming convention (`MTP/mtp-*.gguf`) as a fallback for when that key sits past
-  our 1 MiB read window. `findMtpHead()` pairs a head to its base model (same
-  repo + quant, then same repo, then proximity), and the supervisor uses it to
-  auto-fill `specDraftModel` when a spec asks for `--spec-type draft-mtp`
-  without naming a head. This matters because llama.cpp **fails soft** here: no
-  head ⇒ one warning, then it serves with speculation silently disabled.
+  heads are detected by **naming convention only** (`MTP/mtp-*.gguf`) — do NOT
+  use `{arch}.nextn_predict_layers` for this, even though it is the key
+  llama.cpp gates MTP on: it declares the *architecture* has an MTP head, so the
+  base quant reports it too. We tried, and it hid the real model from the
+  catalog and made it its own draft model — a second full copy of the weights,
+  then a CUDA OOM at load. `findMtpHead()` pairs a head to its base model (same
+  repo + quant, then same repo, then proximity), refusing any candidate that is
+  the model itself or not smaller than it; the supervisor uses it to auto-fill
+  `specDraftModel` when a spec asks for `--spec-type draft-mtp` without naming a
+  head. This matters because llama.cpp **fails soft** the other way: no head ⇒
+  one warning, then it serves with speculation silently disabled.
 - **Startup warnings are surfaced, not buried.** After `/health` first succeeds,
   the supervisor scrapes `W`/`E` lines out of the child's log
   (`parseLogWarnings`, a pure exported helper) onto `RunningModel.warnings`. The

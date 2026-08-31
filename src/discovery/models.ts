@@ -289,7 +289,7 @@ export async function discoverModels(opts?: DiscoverOptions): Promise<Model[]> {
       nEmbd: meta.nEmbd,
       nHeads: meta.nHeads,
       nextnLayers: meta.nextnLayers,
-      kind: isMtpFile(f.path, meta.nextnLayers) ? "mtp" : meta.kind,
+      kind: isMtpFile(f.path) ? "mtp" : meta.kind,
       org: parseOrg(f.path),
       repo: parseRepo(f.path),
     });
@@ -315,12 +315,15 @@ export function isProjector(model: Model): boolean {
  * where it is NOT independently runnable — so the catalog hides it the same way
  * it hides projectors.
  *
- * Detected by GGUF metadata first (`{arch}.nextn_predict_layers` non-zero, the
- * exact key llama.cpp gates MTP on) and by the published naming convention as a
- * fallback, since the key sits past our metadata read window on some files.
+ * Detected by the published naming convention ONLY. It is tempting to key off
+ * `{arch}.nextn_predict_layers` instead, since that is the metadata llama.cpp
+ * gates MTP on — but that key declares the *architecture* has an MTP head, and
+ * the base model advertises it just as loudly as the head file does. Keying on
+ * it misclassifies the main quant as its own draft model, which then loads a
+ * second full copy of the weights and OOMs the GPU. Naming is the only signal
+ * that actually distinguishes the two files.
  */
-export function isMtpFile(path: string, nextnLayers: number | null): boolean {
-  if (nextnLayers != null && nextnLayers > 0) return true;
+export function isMtpFile(path: string): boolean {
   const base = basename(path).toLowerCase();
   if (/^mtp[-_.]/.test(base) || /[-_.]mtp[-_.]/.test(base)) return true;
   // A parent directory named exactly "MTP" (the layout unsloth publishes).
@@ -343,9 +346,16 @@ export function runnableModels(models: Model[]): Model[] {
  * same quant in the same repo, then any head in the same repo, then one sitting
  * beside (or one level below) the model file. Returns null when nothing matches
  * — the caller then leaves the flag unset rather than guessing.
+ *
+ * Two guards keep a bad guess from being worse than no guess: the target model
+ * can never be its own draft (that loads the weights twice), and neither can
+ * anything its size, since a real MTP head is a small fraction of the model.
+ * Getting this wrong costs a CUDA OOM at load, not a silent slowdown.
  */
 export function findMtpHead(models: Model[], model: Model): Model | null {
-  const heads = models.filter(isMtpHead);
+  const heads = models.filter(
+    (m) => isMtpHead(m) && m.path !== model.path && m.sizeBytes < model.sizeBytes,
+  );
   if (heads.length === 0) return null;
 
   const sameRepo = model.repo ? heads.filter((h) => h.repo === model.repo) : [];

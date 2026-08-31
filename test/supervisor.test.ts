@@ -333,6 +333,7 @@ describe("MTP draft-model auto-resolution", () => {
       id: "qwen",
       name: "Qwen",
       path: "/hf/models--u--Q-GGUF/snapshots/a/Q-Q4_K_M.gguf",
+      sizeBytes: 16_000_000_000,
       quant: "Q4_K_M",
       repo: "u/Q-GGUF",
     });
@@ -340,6 +341,7 @@ describe("MTP draft-model auto-resolution", () => {
       id: "mtp-qwen",
       name: "mtp-Qwen",
       path: "/hf/models--u--Q-GGUF/snapshots/a/MTP/mtp-Q-Q4_0.gguf",
+      sizeBytes: 500_000_000, // a real head is a small fraction of the model
       quant: "Q4_0",
       repo: "u/Q-GGUF",
       kind: "mtp",
@@ -383,6 +385,34 @@ describe("MTP draft-model auto-resolution", () => {
     const { resolver } = mtpResolver();
     const sup = newSupervisor({ resolver });
     const running = await sup.start({ model: "qwen" });
+    expect(running.spec.specDraftModel).toBeUndefined();
+  });
+
+  test("never makes a model its own draft model", async () => {
+    // The failure this guards against is a CUDA OOM: llama.cpp loads the draft
+    // model in full, so pointing a 16 GB quant at itself needs 32 GB of VRAM.
+    const base = makeModel({
+      id: "qwen",
+      name: "Qwen",
+      path: "/hf/snap/Q-Q4_K_M.gguf",
+      quant: "Q4_K_M",
+      repo: "u/Q-GGUF",
+      kind: "mtp", // even if misclassified upstream
+      nextnLayers: 1,
+    });
+    const sup = newSupervisor({
+      resolver: {
+        resolve: (sel: string): Model => {
+          if (sel === base.id || sel === base.name) return base;
+          throw new LlamactlError("model_not_found", `no model for "${sel}"`);
+        },
+        all: () => [base],
+      },
+    });
+    const running = await sup.start({
+      model: "qwen",
+      extraFlags: { "--spec-type": "draft-mtp" },
+    });
     expect(running.spec.specDraftModel).toBeUndefined();
   });
 

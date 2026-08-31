@@ -559,7 +559,10 @@ export class Supervisor implements ISupervisor {
     if (typeof specType !== "string" || !specType.split(",").includes("draft-mtp")) return spec;
 
     const head = findMtpHead(this.resolver.all(), model);
-    if (!head) return spec;
+    // Never point a model at itself: llama.cpp would load a second full copy of
+    // the weights and OOM the device at load time. findMtpHead already excludes
+    // it; this is the belt-and-braces check because the failure is expensive.
+    if (!head || head.path === model.path) return spec;
     return { ...spec, specDraftModel: head.path };
   }
 

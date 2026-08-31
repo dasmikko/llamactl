@@ -240,19 +240,33 @@ describe("MTP heads", () => {
       ...over,
     });
 
-  test("isMtpFile detects by nextn metadata", () => {
-    expect(isMtpFile("/models/anything.gguf", 1)).toBe(true);
-    expect(isMtpFile("/models/anything.gguf", 0)).toBe(false);
-    expect(isMtpFile("/models/anything.gguf", null)).toBe(false);
+  test("isMtpFile keys on the published naming convention", () => {
+    expect(isMtpFile("/r/MTP/mtp-Qwen3.8-27B-Q4_0.gguf")).toBe(true);
+    expect(isMtpFile("/r/MTP/whatever.gguf")).toBe(true);
+    expect(isMtpFile("/r/Qwen3.8-27B-Q4_K_M.gguf")).toBe(false);
+    // "mtp" inside an unrelated word must not trigger it.
+    expect(isMtpFile("/r/mtpx-model.gguf")).toBe(false);
   });
 
-  test("isMtpFile falls back to the published naming convention", () => {
-    // The metadata key can sit past our read window, so naming is a backstop.
-    expect(isMtpFile("/r/MTP/mtp-Qwen3.8-27B-Q4_0.gguf", null)).toBe(true);
-    expect(isMtpFile("/r/MTP/whatever.gguf", null)).toBe(true);
-    expect(isMtpFile("/r/Qwen3.8-27B-Q4_K_M.gguf", null)).toBe(false);
-    // "mtp" inside an unrelated word must not trigger it.
-    expect(isMtpFile("/r/mtpx-model.gguf", null)).toBe(false);
+  test("a base model that advertises nextn layers is NOT an MTP head", () => {
+    // Regression: the base quant declares {arch}.nextn_predict_layers just as
+    // the head does. Keying on it hid the real model from the catalog AND made
+    // it its own draft model — a second full copy of the weights, then OOM.
+    expect(isMtpFile("/r/snapshots/a/Qwen3.8-27B-Q4_K_M.gguf")).toBe(false);
+    const advertised = base({ nextnLayers: 1 });
+    expect(isMtpHead(advertised)).toBe(false);
+    expect(runnableModels([advertised]).map((m) => m.id)).toEqual([advertised.id]);
+  });
+
+  test("findMtpHead never returns the model itself", () => {
+    // Even if a base model were misclassified, it must not become its own draft.
+    const self = base({ kind: "mtp", nextnLayers: 1 });
+    expect(findMtpHead([self], self)).toBeNull();
+  });
+
+  test("findMtpHead rejects a candidate that isn't smaller than the model", () => {
+    const fullSize = head({ id: "big", sizeBytes: 16_000_000_000, quant: "Q4_K_M" });
+    expect(findMtpHead([base(), fullSize], base())).toBeNull();
   });
 
   test("runnableModels hides MTP heads from the catalog", () => {

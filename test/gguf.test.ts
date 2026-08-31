@@ -57,6 +57,8 @@ describe("readGgufMeta", () => {
     expect(meta.kind).toBe("text");
   });
 
+  // NOTE: this key marks that the ARCHITECTURE has an MTP head — the base quant
+  // reports it too, so it must not be used to identify a standalone head file.
   test("reads nextn_predict_layers (the MTP gate)", async () => {
     const p = await writeGguf(dir, "mtp.gguf", [
       kvStr("general.architecture", "qwen35"),
