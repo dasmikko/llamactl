@@ -36,6 +36,7 @@ import { ResourceHeader } from "./ResourceHeader.tsx";
 import { Table } from "./Table.tsx";
 import { FlagEditor, type FlagEditorResult } from "./FlagEditor.tsx";
 import { LogViewer } from "./LogViewer.tsx";
+import { ChatView } from "./Chat.tsx";
 import { HelpOverlay } from "./HelpOverlay.tsx";
 import { Filter } from "./Filter.tsx";
 import { HfBrowser } from "./HfBrowser.tsx";
@@ -55,6 +56,7 @@ type Mode =
   | "profiles"
   | "edit"
   | "logs"
+  | "chat"
   | "help"
   | "filter"
   | "hf"
@@ -118,6 +120,13 @@ function App(props: AppProps): JSX.Element {
   const [pending, setPending] = createSignal<PendingAction>(null);
   // A periodic "now" so uptime ticks even between data changes.
   const [now, setNow] = createSignal(Date.now());
+  // The running instance the chat panel is open on (tracked by modelId so the
+  // panel follows the child across daemon state updates).
+  const [chatModelId, setChatModelId] = createSignal<string | null>(null);
+  const chatRunning = createMemo(() => {
+    const id = chatModelId();
+    return id ? st.running.find((r) => r.modelId === id) : undefined;
+  });
 
   onMount(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -364,6 +373,14 @@ function App(props: AppProps): JSX.Element {
       if (cur.running) setMode("logs");
       return;
     }
+    if (ch === "c") {
+      // `c`: chat with a running instance (playground).
+      if (cur.running) {
+        setChatModelId(cur.modelId);
+        setMode("chat");
+      }
+      return;
+    }
     if (ch === "i") {
       setMode("info");
       return;
@@ -529,6 +546,15 @@ function App(props: AppProps): JSX.Element {
                 logPath={current()!.running!.logPath}
                 title={current()!.name}
                 onClose={() => setMode("table")}
+              />
+            </Match>
+            <Match when={mode() === "chat" && chatRunning()}>
+              <ChatView
+                running={chatRunning()!}
+                onClose={() => {
+                  setMode("table");
+                  setChatModelId(null);
+                }}
               />
             </Match>
             <Match when={mode() === "help"}>
@@ -1022,6 +1048,7 @@ function StatusBar(props: StatusBarProps): JSX.Element {
       if (current.running) {
         out.push({ key: "Ctrl+S", desc: "stop" });
         out.push({ key: "l", desc: "logs" });
+        out.push({ key: "c", desc: "chat" });
         out.push({ key: "o", desc: "open" });
       } else {
         out.push({ key: "Enter", desc: "launch" });

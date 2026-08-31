@@ -84,11 +84,24 @@ export function startFakeServer(opts: FakeServerOptions = {}): FakeServer {
         (path === "/v1/chat/completions" || path === "/v1/completions") &&
         req.method === "POST"
       ) {
-        let body: { stream?: boolean } = {};
+        let body: {
+          stream?: boolean;
+          messages?: { role?: string; content?: unknown }[];
+        } = {};
         try {
-          body = (await req.json()) as { stream?: boolean };
+          body = await req.json();
         } catch {
           /* tolerate empty body */
+        }
+        // Mirror llama-server's request validation (it 400s otherwise).
+        if (
+          path === "/v1/chat/completions" &&
+          body.messages?.some((m) => m.role !== "assistant" && m.content == null)
+        ) {
+          return Response.json(
+            { error: { message: "All non-assistant messages must contain 'content'" } },
+            { status: 400 },
+          );
         }
         if (body.stream) {
           // SSE: emit a couple of chunks then [DONE]. Tests assert passthrough.

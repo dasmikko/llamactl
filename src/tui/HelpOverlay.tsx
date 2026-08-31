@@ -25,6 +25,7 @@ const BINDINGS: Binding[] = [
   { keys: "d", desc: "delete a standalone (orphan) profile row (press again / y to confirm)" },
   { keys: "D", desc: "delete the model file(s) from disk (confirm; stop it first)" },
   { keys: "l", desc: "view logs of a running row" },
+  { keys: "c", desc: "chat with a running instance (playground)" },
   { keys: "o", desc: "open a running instance's web UI in the browser" },
   { keys: "p", desc: "pull a model from Hugging Face (search / browse)" },
   { keys: "P", desc: "manage downloads (r retry/resume · c cancel · d dismiss)" },

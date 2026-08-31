@@ -90,6 +90,7 @@ A model moves between the two lists as you start/stop it, and the cursor follows
 | `d` | Delete the selected saved profile (confirm with `d`/`y`) |
 | `D` | Delete the model file(s) from disk (confirm with `D`/`y`; stop it first) |
 | `l` | Tail the running instance's log |
+| `c` | Chat with a running instance (playground, streaming) |
 | `p` | Pull a model from Hugging Face (search → browse → download) |
 | `P` | Manage downloads (cancel / retry / dismiss) |
 | `I` | Manage built llama.cpp installs (select active, log, update, remove) |
