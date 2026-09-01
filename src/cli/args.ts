@@ -22,6 +22,8 @@ const VALUE_OPTS = new Set([
   "host",
   "port",
   "control-port",
+  "web-port",
+  "web-token",
   "llama-server",
   "config",
   "model-paths",

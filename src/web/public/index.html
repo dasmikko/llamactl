@@ -1,0 +1,34 @@
+<!--
+  Shell for the web UI. Everything below is filled in by app.js, which loads as
+  a native ES module — there is no bundler, so keep imports to real relative
+  paths that the server's asset manifest lists.
+-->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>llamactl</title>
+<link rel="stylesheet" href="/style.css" />
+
+<header>
+  <h1>llamactl</h1>
+  <div class="meters" id="meters"></div>
+  <div class="spacer"></div>
+  <span class="server" id="server-info"></span>
+</header>
+
+<div id="error" hidden></div>
+
+<nav>
+  <input id="filter" type="search" placeholder="Filter models…  (/)" autocomplete="off" />
+  <button data-open="hf">Pull from HF</button>
+  <button data-open="downloads">Downloads<span class="badge" id="dl-badge" hidden></span></button>
+  <button data-open="installs">Installs<span class="badge" id="build-badge" hidden></span></button>
+  <button data-open="help">?</button>
+</nav>
+
+<main id="catalog"></main>
+
+<div id="modal-backdrop" hidden>
+  <div id="modal" role="dialog" aria-modal="true"></div>
+</div>
+
+<script type="module" src="/app.js"></script>

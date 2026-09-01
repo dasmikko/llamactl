@@ -485,6 +485,24 @@ export interface FavoritesResponse {
   favorites: string[];
 }
 
+/**
+ * GET /api/logs/:modelId response — the tail of a running child's log. Served
+ * by the web layer (`src/web/server.ts`), not the control plane: it reads the
+ * file directly, since it runs on the same host as the daemon. The TUI reads
+ * the file itself and has no need for this route.
+ */
+export interface LogTailResponse {
+  modelId: string;
+  /** Absolute path the lines came from (shown as a subtitle, as in the TUI). */
+  logPath: string;
+  /** The last N lines, ANSI/CR-sanitized. */
+  lines: string[];
+  /** Total lines in the file, so a client can render "showing N of M". */
+  total: number;
+  /** True when the log file does not exist yet (child just spawned). */
+  missing: boolean;
+}
+
 /** Availability + version of the `llama-server` binary the daemon will spawn. */
 export interface LlamaServerInfo {
   /** Resolved path, or the bare command name the daemon will exec. */
@@ -509,8 +527,18 @@ export interface LlamaFlag {
   takesValue: boolean;
   /** The value placeholder as printed, e.g. "N", "FNAME", "{none,linear,yarn}". */
   valueHint?: string;
-  /** Choices parsed from a `{a,b,c}` placeholder, when the value is an enum. */
+  /**
+   * Choices parsed from the value placeholder when it names an enum — either
+   * `{a,b,c}` or a bare `a,b,c` list (`--spec-type`). Absent for free-text
+   * metavars like `N` or `FNAME`.
+   */
   enumValues?: string[];
+  /**
+   * True when the flag accepts several of `enumValues` at once, comma-joined —
+   * llama.cpp spells this "comma-separated list of …" in the help. Editors
+   * offer a multi-select rather than a single choice.
+   */
+  multiple?: boolean;
   /** Default value text parsed from a "(default: …)" note, when present. */
   default?: string;
   /** Help/description text (continuation lines joined, env/default notes stripped). */

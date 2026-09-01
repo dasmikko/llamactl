@@ -1,0 +1,303 @@
+<!--
+  Prototype web UI. Deliberately dependency-free vanilla JS in one file: this
+  exists to exercise the backend (proxy + log route + auth), not to be the final
+  front end. The real UI is a SolidJS app that ports src/tui/useDaemon.ts and
+  src/tui/rows.ts, and that needs its own bundling step.
+-->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>llamactl</title>
+<style>
+  :root {
+    --bg: #12141a; --panel: #191c24; --line: #2a2f3c;
+    --fg: #d6dae4; --dim: #7d869c; --cyan: #56c8d8; --green: #6bcf7f;
+    --amber: #e2b352; --red: #e2685f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  header {
+    display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: baseline;
+    padding: .75rem 1rem; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0;
+  }
+  h1 { font-size: 14px; margin: 0; color: var(--cyan); letter-spacing: .05em; }
+  h2 { font-size: 12px; margin: 0 0 .5rem; color: var(--dim); letter-spacing: .1em; text-transform: uppercase; }
+  main { padding: 1rem; display: grid; gap: 1.5rem; max-width: 1100px; }
+  .meter { color: var(--dim); }
+  .meter b { color: var(--fg); font-weight: 500; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--dim); padding: .25rem .5rem; border-bottom: 1px solid var(--line); }
+  td { padding: .25rem .5rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--dim); }
+  button {
+    font: inherit; color: var(--fg); background: transparent;
+    border: 1px solid var(--line); border-radius: 3px; padding: .1rem .5rem; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+  button:disabled { opacity: .4; cursor: default; }
+  .status-ready { color: var(--green); }
+  .status-starting { color: var(--amber); }
+  .status-crashed, .status-stopping { color: var(--red); }
+  #error {
+    display: none; margin: 0 1rem; padding: .5rem .75rem;
+    border: 1px solid var(--red); border-radius: 3px; color: var(--red);
+  }
+  #error.on { display: block; }
+  #logs { display: none; }
+  #logs.on { display: block; }
+  pre {
+    margin: 0; padding: .5rem; max-height: 22rem; overflow: auto;
+    background: #0d0f14; border: 1px solid var(--line); border-radius: 3px;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+  .warn { color: var(--amber); }
+</style>
+
+<header>
+  <h1>llamactl</h1>
+  <span class="meter" id="m-cpu"></span>
+  <span class="meter" id="m-mem"></span>
+  <span class="meter" id="m-gpu"></span>
+  <span class="meter" id="m-vram"></span>
+  <span class="meter" id="m-server" style="margin-left:auto"></span>
+</header>
+
+<div id="error"></div>
+
+<main>
+  <section>
+    <h2>Active instances</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th><th>Status</th><th class="num">Port</th><th class="num">PID</th>
+          <th class="num">CPU</th><th class="num">RSS</th><th class="num">VRAM</th><th>Uptime</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="running"><tr><td colspan="9" class="sub">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="logs">
+    <div class="row">
+      <h2 id="log-title">Log</h2>
+      <button onclick="closeLogs()">close</button>
+    </div>
+    <pre id="log-body"></pre>
+  </section>
+
+  <section>
+    <h2>Models</h2>
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Repo</th><th>Quant</th><th class="num">Size</th><th class="num">Ctx</th><th></th></tr>
+      </thead>
+      <tbody id="models"><tr><td colspan="6" class="sub">loading…</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+  // ---- tiny helpers -------------------------------------------------------
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, props = {}, ...kids) => {
+    const n = Object.assign(document.createElement(tag), props);
+    for (const k of kids) n.append(k);
+    return n;
+  };
+
+  function bytes(n) {
+    if (!Number.isFinite(n) || n < 0) return "?";
+    const u = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(1)) + " " + u[i];
+  }
+
+  function uptime(since) {
+    const s = Math.max(0, Math.floor((Date.now() - since) / 1000));
+    if (s < 60) return s + "s";
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + "m" + (s % 60) + "s";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + "h" + (m % 60) + "m";
+    return Math.floor(h / 24) + "d" + (h % 24) + "h";
+  }
+
+  /** Every call goes through the same-origin proxy; the daemon token stays server-side. */
+  async function api(method, path, body) {
+    const res = await fetch("/api" + path, {
+      method,
+      headers: body === undefined ? {} : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : undefined;
+    if (!res.ok) throw new Error(data?.error ? data.error.code + ": " + data.error.message : "HTTP " + res.status);
+    return data;
+  }
+
+  function showError(e) {
+    const box = $("error");
+    if (!e) { box.className = ""; box.textContent = ""; return; }
+    box.className = "on";
+    box.textContent = String(e.message ?? e);
+  }
+
+  // ---- rendering ----------------------------------------------------------
+  let busy = new Set(); // model ids with a start/stop in flight
+
+  function renderHeader(stats, llamaServer) {
+    const sys = stats.system;
+    $("m-cpu").innerHTML = "cpu <b>" + sys.cpuPct.toFixed(0) + "%</b>" +
+      (sys.tempC === null ? "" : ' <span class="sub">' + sys.tempC.toFixed(0) + "°C</span>");
+    $("m-mem").innerHTML = "ram <b>" + bytes(sys.memUsed) + "</b> / " + bytes(sys.memTotal);
+    const gpu = stats.gpus[0];
+    $("m-gpu").innerHTML = gpu ? "gpu <b>" + gpu.utilPct.toFixed(0) + "%</b>" +
+      (gpu.tempC === null ? "" : ' <span class="sub">' + gpu.tempC.toFixed(0) + "°C</span>") : "";
+    $("m-vram").innerHTML = gpu ? "vram <b>" + bytes(gpu.vramUsed) + "</b> / " + bytes(gpu.vramTotal) : "";
+    $("m-server").innerHTML = llamaServer.found
+      ? '<span class="sub">llama-server ' + (llamaServer.version ?? "?") + "</span>"
+      : '<span class="warn">llama-server not found</span>';
+  }
+
+  function renderRunning(running, stats) {
+    const tbody = $("running");
+    tbody.replaceChildren();
+    if (running.length === 0) {
+      tbody.append(el("tr", {}, el("td", { colSpan: 9, className: "sub" }, "nothing running")));
+      return;
+    }
+    for (const r of running) {
+      const st = (stats?.instances ?? []).find((i) => i.modelId === r.modelId);
+      const stopBtn = el("button", {
+        textContent: "stop",
+        disabled: busy.has(r.modelId),
+        onclick: () => act(r.modelId, () => api("POST", "/stop", { model: r.modelId })),
+      });
+      const logBtn = el("button", { textContent: "logs", onclick: () => openLogs(r.modelId, r.name) });
+      const name = el("td", {}, r.name);
+      if (r.warnings?.length) {
+        name.append(el("span", { className: "warn", title: r.warnings.join("\n") },
+          " ⚠ " + r.warnings.length));
+      }
+      tbody.append(el("tr", {},
+        name,
+        el("td", { className: "status-" + r.status, textContent: r.status }),
+        el("td", { className: "num", textContent: r.port }),
+        el("td", { className: "num", textContent: r.pid }),
+        el("td", { className: "num", textContent: st ? st.cpuPct.toFixed(0) + "%" : "–" }),
+        el("td", { className: "num", textContent: st ? bytes(st.rssBytes) : "–" }),
+        el("td", { className: "num", textContent: st && st.vramBytes ? bytes(st.vramBytes) : "–" }),
+        el("td", { textContent: uptime(r.startedAt) }),
+        el("td", {}, logBtn, " ", stopBtn),
+      ));
+    }
+  }
+
+  function renderModels(models, running) {
+    const live = new Set(running.map((r) => r.modelId));
+    const tbody = $("models");
+    tbody.replaceChildren();
+    if (models.length === 0) {
+      tbody.append(el("tr", {}, el("td", { colSpan: 6, className: "sub" }, "no models discovered")));
+      return;
+    }
+    for (const m of models) {
+      const isUp = live.has(m.id);
+      tbody.append(el("tr", {},
+        el("td", {}, m.name),
+        el("td", { className: "sub", textContent: m.repo ?? "" }),
+        el("td", { textContent: m.quant ?? "" }),
+        el("td", { className: "num", textContent: bytes(m.sizeBytes) }),
+        el("td", { className: "num", textContent: m.contextLength ?? "" }),
+        el("td", {}, el("button", {
+          textContent: isUp ? "running" : "start",
+          disabled: isUp || busy.has(m.id),
+          // Default launch spec only — profiles, the flag editor and the HF
+          // browser are all still TUI-only in this prototype.
+          onclick: () => act(m.id, () => api("POST", "/start", { model: m.id })),
+        })),
+      ));
+    }
+  }
+
+  /** Run a mutation, keeping the button disabled and refreshing when it lands. */
+  async function act(id, fn) {
+    busy.add(id);
+    refresh();
+    try {
+      await fn();
+      showError(null);
+    } catch (e) {
+      showError(e);
+    } finally {
+      busy.delete(id);
+      await refresh();
+    }
+  }
+
+  // ---- logs ---------------------------------------------------------------
+  let logModel = null;
+
+  function openLogs(id, name) {
+    logModel = id;
+    $("log-title").textContent = "Log — " + name;
+    $("logs").className = "on";
+    pollLogs();
+  }
+
+  function closeLogs() {
+    logModel = null;
+    $("logs").className = "";
+  }
+
+  async function pollLogs() {
+    if (!logModel) return;
+    try {
+      const res = await api("GET", "/logs/" + encodeURIComponent(logModel));
+      const body = $("log-body");
+      const atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
+      body.textContent = res.missing ? "(log file not created yet)" : res.lines.join("\n");
+      if (atBottom) body.scrollTop = body.scrollHeight;
+    } catch (e) {
+      $("log-body").textContent = "could not read log: " + e.message;
+    }
+  }
+
+  // ---- poll loop ----------------------------------------------------------
+  let models = [];
+
+  async function refresh() {
+    try {
+      const [ps, st] = await Promise.all([api("GET", "/ps"), api("GET", "/stats")]);
+      renderHeader(st.stats, st.llamaServer);
+      renderRunning(ps.running, st.stats);
+      renderModels(models, ps.running);
+      showError(null);
+    } catch (e) {
+      showError(e);
+    }
+  }
+
+  async function refreshModels() {
+    try {
+      models = (await api("GET", "/models")).models;
+    } catch (e) {
+      showError(e);
+    }
+  }
+
+  (async () => {
+    await refreshModels();
+    await refresh();
+    // Same cadence as the TUI's single polling interval.
+    setInterval(refresh, 1500);
+    setInterval(pollLogs, 1000);
+  })();
+</script>

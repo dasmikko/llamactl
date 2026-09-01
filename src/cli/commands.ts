@@ -28,7 +28,13 @@ import { LlamactlError, isLlamactlError } from "../errors.ts";
 import { discoverModels, resolveModel, runnableModels } from "../discovery/models.ts";
 import { modelScanPaths } from "../config/config.ts";
 import { connectDaemon, currentRuntime, clientFor } from "./../daemon/client.ts";
-import { readLiveRuntime, isProcessAlive, clearRuntime } from "../daemon/runtime.ts";
+import {
+  readLiveRuntime,
+  isProcessAlive,
+  clearRuntime,
+  generateToken,
+} from "../daemon/runtime.ts";
+import { startWebServer } from "../web/server.ts";
 import {
   type Column,
   type OutputMode,
@@ -375,6 +381,67 @@ export async function cmdDaemonStop(mode: OutputMode): Promise<number> {
     return 0;
   }
   emitLine(`Daemon stopped (pid ${rt.pid}).`);
+  return 0;
+}
+
+/* ---------------------------------- web ---------------------------------- */
+
+/**
+ * Serve the web UI in the foreground until interrupted. The server is an
+ * ordinary daemon client: it resolves the control plane through connectDaemon
+ * (spawning the daemon if needed, exactly as the CLI does) and holds the bearer
+ * token itself so it never reaches the browser.
+ *
+ * Binding off-loopback requires a session token; one is generated and printed
+ * when `--web-token` isn't given, so `--host 0.0.0.0` can never end up serving
+ * process control to the whole LAN unauthenticated.
+ */
+export async function cmdWeb(args: ParsedArgs, config: Config, mode: OutputMode): Promise<number> {
+  const host = strOpt(args, "host") ?? "127.0.0.1";
+  const port = numOpt(args, "web-port") ?? 48180;
+  const loopback = host === "127.0.0.1" || host === "::1" || host === "localhost";
+  const explicitToken = strOpt(args, "web-token");
+  const token = explicitToken ?? (loopback ? null : generateToken());
+
+  const server = await startWebServer({
+    host,
+    port,
+    token,
+    connect: async () => {
+      const conn = await connectDaemon({ config });
+      return {
+        controlUrl: conn.runtime.controlUrl,
+        token: conn.runtime.token,
+        pid: conn.runtime.pid,
+      };
+    },
+  });
+
+  const url = token === null ? server.url : `${server.url}/?token=${encodeURIComponent(token)}`;
+
+  if (mode.json) {
+    emitJson({ status: "listening", url, host, port: server.port, authenticated: token !== null });
+  } else {
+    emitLine(`Web UI: ${url}`);
+    if (token !== null && explicitToken === undefined) {
+      emitLine("Generated a session token — open the URL above (it sets a cookie and drops the token).");
+    }
+    if (!loopback) {
+      emitLine(`Serving on ${host}: anyone who can reach this port and holds the token can start,`);
+      emitLine("stop and delete models. Prefer 127.0.0.1 plus an SSH tunnel where you can.");
+    }
+    emitLine("Ctrl-C to stop.");
+  }
+
+  // Park until a signal; the process exists only to serve.
+  await new Promise<void>((resolve) => {
+    const shutdown = (): void => {
+      server.stop();
+      resolve();
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+  });
   return 0;
 }
 

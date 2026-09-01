@@ -26,6 +26,7 @@ import {
   cmdSearch,
   cmdStart,
   cmdStop,
+  cmdWeb,
   reportError,
 } from "./cli/commands.ts";
 import { runDaemonForeground } from "./daemon/daemon.ts";
@@ -53,6 +54,7 @@ Commands:
   install [<repo>]     Build & install llama.cpp from source (no repo ⇒ upstream llama.cpp)
   install list|use <id>|rm <id>|cancel <id>|log <id>|rename <id> <name>|update <id>   Manage managed installs (rm clears failed builds; update refetches + recompiles)
   daemon start|stop    Start or stop the background supervisor
+  web                  Serve the browser UI (default http://127.0.0.1:48180)
   init                 Interactive setup wizard          (planned)
   recommend            Suggest a model for your hardware  (planned)
   doctor               Diagnose your setup                (planned)
@@ -87,6 +89,9 @@ Options:
   --backend <b>        Build backend for 'install': cuda or cpu (default cuda)
   --allow-unsupported-compiler  Pass -allow-unsupported-compiler to nvcc (too-new host gcc)
   --cuda-host-compiler <p>  Host C++ compiler for CUDA, e.g. g++-15 (-DCMAKE_CUDA_HOST_COMPILER)
+  --web-port <n>       Port for 'web' (default 48180; scans upward if taken)
+  --web-token <t>      Session token for 'web' (required off-loopback; generated if omitted)
+                       ('web' also honours --host; it defaults to 127.0.0.1)
   --control-port <n>   Control-plane base port (default 48134)
   --llama-server <p>   Path to the llama-server binary
   --model-paths <a:b>  Extra colon-separated model directories
@@ -180,6 +185,8 @@ async function main(): Promise<number> {
         emitError(`unknown daemon subcommand: ${sub ?? "(none)"} — use 'start' or 'stop'`);
         return 1;
       }
+      case "web":
+        return await cmdWeb(a, config, mode);
       case "init":
         return cmdInit(mode);
       case "recommend":

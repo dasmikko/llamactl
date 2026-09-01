@@ -1,0 +1,274 @@
+/*
+ * Styling for the web UI. The palette mirrors src/tui/theme.ts so the two front
+ * ends read as the same tool: cyan accents, amber warnings, dim secondary text
+ * on a near-black background.
+ */
+
+:root {
+  --bg: #12141a;
+  --panel: #191c24;
+  --panel-2: #1f2330;
+  --line: #2a2f3c;
+  --fg: #d6dae4;
+  --dim: #7d869c;
+  --cyan: #56c8d8;
+  --green: #6bcf7f;
+  --amber: #e2b352;
+  --red: #e2685f;
+  --violet: #a78bfa;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ------------------------------- chrome --------------------------------- */
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  padding: .6rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  flex-wrap: wrap;
+}
+
+h1 { font-size: 14px; margin: 0; color: var(--cyan); letter-spacing: .06em; }
+.spacer { flex: 1; }
+.meters { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+.meter { color: var(--dim); white-space: nowrap; }
+.meter b { color: var(--fg); font-weight: 500; }
+.meter .bar {
+  display: inline-block; width: 4rem; height: .5rem; margin-left: .35rem;
+  background: var(--panel-2); border: 1px solid var(--line); vertical-align: middle;
+}
+.meter .bar span { display: block; height: 100%; background: var(--cyan); }
+.meter .bar.hot span { background: var(--amber); }
+.server { color: var(--dim); }
+
+nav {
+  display: flex; gap: .5rem; align-items: center;
+  padding: .5rem 1rem; border-bottom: 1px solid var(--line);
+}
+nav input[type="search"] {
+  flex: 1; max-width: 26rem;
+  background: var(--panel); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 3px; padding: .25rem .5rem;
+  font: inherit;
+}
+nav input[type="search"]:focus { outline: none; border-color: var(--cyan); }
+
+#error {
+  margin: .5rem 1rem; padding: .5rem .75rem;
+  border: 1px solid var(--red); border-radius: 3px; color: var(--red);
+  white-space: pre-wrap;
+}
+
+main { padding: .5rem 1rem 4rem; }
+
+/* -------------------------------- catalog -------------------------------- */
+
+.section-title {
+  margin: 1.25rem 0 .35rem;
+  color: var(--dim); font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+}
+.section-title:first-child { margin-top: .5rem; }
+.repo-header {
+  margin: .75rem 0 .1rem; color: var(--violet);
+}
+.repo-header a { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
+
+.row {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .3rem .5rem; border-bottom: 1px solid var(--line);
+}
+.row:hover { background: var(--panel); }
+.row.indent { padding-left: 1.5rem; }
+.row .name { flex: 1; min-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .meta { color: var(--dim); white-space: nowrap; }
+.row .actions { display: flex; gap: .3rem; }
+.row.is-running { border-left: 2px solid var(--green); }
+
+.star { cursor: pointer; color: var(--dim); background: none; border: none; padding: 0 .2rem; font: inherit; }
+.star.on { color: var(--amber); }
+
+.tag {
+  padding: 0 .35rem; border: 1px solid var(--line); border-radius: 2px;
+  color: var(--dim); font-size: 11px;
+}
+.status-ready { color: var(--green); }
+.status-starting { color: var(--amber); }
+.status-crashed, .status-stopping { color: var(--red); }
+.warn { color: var(--amber); }
+.dim { color: var(--dim); }
+.empty { color: var(--dim); padding: .5rem; }
+
+/* -------------------------------- buttons -------------------------------- */
+
+button {
+  font: inherit; color: var(--fg); background: transparent;
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: .1rem .5rem; cursor: pointer; white-space: nowrap;
+}
+button:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+button:disabled { opacity: .4; cursor: default; }
+button.primary { border-color: var(--cyan); color: var(--cyan); }
+button.danger:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+button.on { border-color: var(--green); color: var(--green); }
+
+.badge {
+  margin-left: .35rem; padding: 0 .3rem; border-radius: 999px;
+  background: var(--cyan); color: var(--bg); font-size: 11px;
+}
+
+/* -------------------------------- modals --------------------------------- */
+
+#modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .6);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 3rem 1rem; z-index: 10; overflow: auto;
+}
+/* `display: flex` above outranks the user agent's `[hidden] { display: none }`,
+   so without this the backdrop stays on screen and swallows every click. Any
+   rule that sets `display` on a hidden-toggled element needs the same guard. */
+#modal-backdrop[hidden] { display: none; }
+#modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 5px;
+  width: min(60rem, 100%); max-height: calc(100vh - 6rem);
+  display: flex; flex-direction: column;
+}
+.modal-head {
+  display: flex; align-items: baseline; gap: 1rem;
+  padding: .6rem .9rem; border-bottom: 1px solid var(--line);
+}
+.modal-head h2 { margin: 0; font-size: 13px; color: var(--cyan); }
+.modal-head .sub { color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal-body { padding: .75rem .9rem; overflow: auto; }
+.modal-foot {
+  /* Deliberately no flex-wrap: the estimate shrinks and wraps its own contents
+     instead, so the buttons can never be pushed onto a second line. */
+  display: flex; gap: .5rem; justify-content: flex-end; align-items: center;
+  padding: .6rem .9rem; border-top: 1px solid var(--line);
+}
+
+/* --------------------------------- forms --------------------------------- */
+
+.field { display: flex; align-items: center; gap: .6rem; padding: .15rem 0; }
+.field > label { width: 11rem; color: var(--dim); flex: none; }
+/* Descendant, not direct-child: some fields wrap their control (the context
+   picker, the multi-value checkbox groups). Checkboxes keep their native look. */
+.field input:not([type="checkbox"]), .field select, .field textarea {
+  flex: 1; background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 3px; padding: .15rem .4rem; font: inherit;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none; border-color: var(--cyan);
+}
+.field .help { color: var(--dim); flex: 1; }
+/* Context size: preset picker + free-text box, side by side. */
+.ctx-control { flex: 1; display: flex; align-items: center; gap: .4rem; min-width: 0; }
+.field .ctx-control select { flex: 0 1 11rem; min-width: 6rem; }
+.field .ctx-control input { flex: 1 1 5rem; min-width: 4rem; }
+.ctx-control .dim { white-space: nowrap; font-size: 12px; }
+
+/* A multi-value flag's choices, wrapped to fill the control column. */
+.checks { flex: 1; display: flex; flex-wrap: wrap; gap: .1rem .75rem; }
+.check { display: inline-flex; align-items: center; gap: .25rem; cursor: pointer; }
+.check input { margin: 0; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.5rem; }
+@media (max-width: 60rem) { .cols { grid-template-columns: 1fr; } }
+
+/* The flag editor: one field per line, grouped under headings that stay put
+   while the list scrolls, so you always know which group you're in. */
+.editor-list .field { border-bottom: 1px solid transparent; }
+.editor-list .field:hover { border-bottom-color: var(--line); }
+.editor-section {
+  /* The gap above a heading has to be padding, not margin: a sticky element
+     sticks its border box, so a top margin would leave a transparent strip at
+     the top of the scroll container for the previous row to show through. */
+  margin: 0 0 .35rem; padding: 1.25rem 0 .2rem;
+  position: sticky; top: 0; z-index: 1; background: var(--panel);
+  /* `top: 0` sticks to the scrollport's padding edge, so the modal body's own
+     top padding stays a live gap that rows scroll through. This paints a copy
+     of the heading's box just above it, filling that strip. */
+  box-shadow: 0 -.75rem 0 var(--panel);
+  color: var(--dim); font-size: 12px; font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+.editor-list > .editor-section:first-child { padding-top: .2rem; }
+/* Notices inside the flag list line up with the controls, not the labels. */
+.editor-list .flag-note { padding-left: 11.6rem; }
+/* The label carries the field name and the hint carries the raw flag, so the
+   hint should recede rather than compete for the eye. */
+.editor-list .field .help { flex: 0 0 12rem; text-align: right; font-size: 12px; }
+@media (max-width: 40rem) { .editor-list .field .help { display: none; } }
+
+fieldset { border: 1px solid var(--line); border-radius: 4px; margin: .75rem 0 0; padding: .5rem .75rem; }
+legend { color: var(--dim); padding: 0 .35rem; }
+
+.estimate { display: flex; gap: 1.25rem; flex-wrap: wrap; padding: .4rem 0; color: var(--dim); }
+.estimate b { color: var(--fg); font-weight: 500; }
+/* Pinned in the footer: pushed left, and allowed to shrink so it can never
+   push the button group onto a second line. */
+.modal-foot .estimate { margin-right: auto; padding: 0; flex: 1 1 auto; min-width: 0; }
+.modal-actions { display: flex; gap: .5rem; flex: none; }
+
+/* --------------------------------- tables -------------------------------- */
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-weight: 500; color: var(--dim);
+  padding: .25rem .5rem; border-bottom: 1px solid var(--line); position: sticky; top: 0;
+  background: var(--panel);
+}
+td { padding: .25rem .5rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.progress {
+  height: .5rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 2px;
+  min-width: 8rem;
+}
+.progress span { display: block; height: 100%; background: var(--cyan); }
+.progress.error span { background: var(--red); }
+.progress.done span { background: var(--green); }
+
+/* ---------------------------------- logs --------------------------------- */
+
+pre.log {
+  margin: 0; padding: .5rem; height: 26rem; overflow: auto;
+  background: #0d0f14; border: 1px solid var(--line); border-radius: 3px;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* ---------------------------------- chat --------------------------------- */
+
+.chat-log {
+  height: 26rem; overflow: auto; padding: .5rem;
+  background: #0d0f14; border: 1px solid var(--line); border-radius: 3px;
+}
+.chat-msg { margin-bottom: .75rem; white-space: pre-wrap; word-break: break-word; }
+.chat-msg .who { color: var(--dim); }
+.chat-msg.user .who { color: var(--cyan); }
+.chat-input { display: flex; gap: .5rem; margin-top: .5rem; }
+.chat-input textarea {
+  flex: 1; resize: vertical; min-height: 3rem;
+  background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 3px; padding: .3rem .4rem; font: inherit;
+}
+.chat-input textarea:focus { outline: none; border-color: var(--cyan); }
+
+/* ---------------------------------- help --------------------------------- */
+
+.help-grid { display: grid; grid-template-columns: 8rem 1fr; gap: .1rem 1rem; }
+.help-grid .k { color: var(--cyan); }

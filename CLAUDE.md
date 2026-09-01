@@ -15,6 +15,7 @@ live CPU / RAM / GPU / VRAM (+ temperatures). There is also a full headless CLI.
 bun install
 bun test                 # full suite (uses a fake llama-server; no real model needed)
 bun test test/spec.test.ts   # a single file
+bun run test:e2e         # web UI in a real browser (needs: bunx playwright install chromium)
 bun run typecheck        # tsc --noEmit (strict; noUnusedLocals on; covers src + test)
 bun run build            # scripts/build.ts → Bun.build + @opentui/solid plugin → native binary
 bun run start            # run the TUI from source (= bun --preload @opentui/solid/preload src/index.ts)
@@ -63,6 +64,7 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
 | Daemon + control plane + client | `src/daemon/*` |
 | Monitoring | `src/monitor/proc.ts`, `nvidia.ts`, `sampler.ts` |
 | Headless CLI | `src/index.ts`, `src/cli/*` |
+| Web UI | `src/web/server.ts`, `modules.ts`, `assets.ts`, `public/*` (buildless ES modules), `src/logs/tail.ts` |
 | TUI (Solid + opentui) | `src/tui/*` (`app.tsx` is the root + `runTui` entry); build via `scripts/build.ts` |
 
 ## How key things work (so you don't relearn them)
@@ -154,8 +156,74 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
   and `src/tui/ShortcutBar.tsx` — reuse them in forms/footers. `useDaemon` returns a
   `createStore` as `daemon.state` plus action methods. Headless render tests use
   opentui's `testRender`+`captureCharFrame` (`test/tui-render.test.tsx`).
+- **The web UI (`llamactl web`) is a daemon *client*, not part of the daemon.**
+  `src/web/server.ts` serves the page and proxies its `/api/*` calls to the
+  control plane, injecting the bearer token server-side — the browser never
+  sees it, and the control plane keeps its loopback-only invariant. It resolves
+  the upstream through the same `connectDaemon()` the CLI uses and re-resolves
+  once on a 401, because the daemon rotates its token on every restart. Two
+  things it must keep doing: never relay the browser's `Authorization`/`Cookie`
+  upstream, and reject a request whose `Origin` doesn't match its `Host` (that
+  check, not CORS, is what stops a random web page from driving a loopback
+  server). Four routes are served locally instead of proxied, because they need
+  host access the daemon has no route for: `/api/logs/model/:id` and
+  `/api/logs/build/:id` (paths come from the daemon's own `/ps` and `/installs`
+  records, **never** from the client — a client-supplied path would be an
+  arbitrary-file-read hole), `/api/chat/:id` (streams the child's
+  OpenAI-compatible endpoint, which a browser can't reach), and
+  `/api/daemon/restart` (a browser can't fork a process).
+- **The web front end is buildless and shares the TUI's logic verbatim.**
+  `src/web/public/*` are plain ES modules the browser loads directly (no
+  bundler, no framework), listed in the `assets.ts` manifest and imported as
+  text so they end up inside the compiled binary. `src/web/modules.ts`
+  transpiles `rows.ts`, `spec.ts`, `estimate.ts` and `errors.ts` with
+  `Bun.Transpiler` and serves them under `/mod/`, so row grouping, flag
+  validation and the memory estimate are the *same code* as the TUI's, not a
+  reimplementation. Only modules whose runtime imports stay inside that set can
+  be added (type-only imports vanish, which is why `rows.ts` needs nothing
+  alongside it) — `modules.ts` throws at startup otherwise.
+- **Enum flags are detected from `--help`, not hardcoded.** `parseLlamaHelp`
+  finds all three spellings of a choice list and puts them in
+  `LlamaFlag.enumValues`: braced (`--rope-scaling {none,linear,yarn}`), bare
+  comma-separated (`--spec-type none,draft-simple,…`), and named in the prose
+  (`--spec-draft-type-k TYPE … allowed values: f32, f16, …`). It sets
+  `multiple: true` when the help says "comma-separated list of …". A candidate
+  is only read as an enum when every token is lowercase, so metavars like
+  `--tensor-split N0,N1,N2` stay free text. On the current binary this finds 8
+  enum flags out of 244. The web flag editor renders a `<select>` for a
+  single-choice enum and a checkbox group for a multi-valued one, so a new enum
+  flag in a future llama.cpp build gets a picker with no code change. The TUI's
+  generic flag list does not use `enumValues` yet — the data is there if it
+  should.
+- **The web flag editor's `extra*` fields are raw flags, gated on the binary.**
+  Its "Speculative decoding" and "Sampling defaults" sections edit flags that
+  are NOT `LaunchSpec` fields (`--spec-type`, `--spec-draft-n-max`, `--temp`,
+  `--top-k`, …); they live in `extraFlags`, which is exactly where
+  `src/supervisor/process.ts` reads `--spec-type` to decide whether to auto-fill
+  an MTP head. Because those are passed to `llama-server` verbatim, each field
+  only renders when the active binary advertises that flag in `--help` (a whole
+  section disappears if none of its flags exist), so an older build is never
+  handed an argument it would reject. The binary's own default becomes the
+  input's placeholder, trimmed at the first comma — llama.cpp writes the value
+  and an aside in one parenthesis, `(default: 40, 0 = disabled)`. Context size
+  gets a preset picker beside its free-text box (the TUI's `CTX_PRESETS`), with
+  presets above the model's trained `contextLength` dropped and that maximum
+  offered as the last option.
+- **Three traps live in the web layer's plumbing.** (1) `with { type: "text" }`
+  on a `.ts` path works at runtime but **not** through `Bun.build`, which
+  resolves it as a module — hence the `src/web/shared/*.ts.txt` symlinks plus
+  the `shared-source` plugin in `scripts/build.ts`, which must keep the symlink
+  path (never `realpath` it) or the bundler dedupes onto the module. (2)
+  `src/web/text-imports.d.ts` must NOT be named `assets.d.ts`: a `.d.ts` beside
+  a same-named `.ts` is taken as its declaration file and silently leaves the
+  program. (3) A CSS rule setting `display` on an element toggled via the
+  `hidden` attribute outranks the UA's `[hidden] { display: none }` — this
+  hid nothing and left the modal backdrop swallowing every click. Add an
+  explicit `#id[hidden] { display: none }` guard; `test/web-render.test.ts`
+  asserts one exists.
 - **Security:** control plane is loopback-only + bearer token (constant-time
   compare, rotated each start, never logged). Instances default to 127.0.0.1.
+  `llamactl web` refuses to bind off-loopback without a session token.
 
 ## Conventions
 
@@ -187,6 +255,15 @@ TUI / CLI ──(loopback HTTP + bearer token)──► Control plane ──► 
   `src/monitor/proc.ts`.
 
 ## Testing approach
+
+The web UI has four layers of coverage, because a buildless browser front end
+has no compiler to catch anything: `test/web.test.ts` (proxy, auth, local
+routes), `test/web-modules.test.ts` (every import resolves to a served module
+and every named binding really is exported), `test/web-render.test.ts` (the
+real browser modules executed against `test/helpers/fake-dom.ts`), and
+`test/e2e.test.ts` (headless Chromium via Playwright — skipped unless
+`LLAMACTL_E2E=1`, so plain `bun test` needs no browser). Reach for the e2e lane
+for anything visual or interactive; the others can't see CSS or clicks.
 
 `bun test`. Logic is unit-tested against a tiny fake `llama-server`
 (`test/helpers/fake-llama-server.ts`) so no real model is needed. Monitor and

@@ -11,7 +11,8 @@
     "start": "bun --preload @opentui/solid/preload src/index.ts",
     "test": "bun test",
     "build": "bun run scripts/build.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "LLAMACTL_E2E=1 bun test test/e2e.test.ts"
   },
   "private": true,
   "dependencies": {
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "playwright": "^1.62.1",
     "typescript": "^5.9.3"
   }
 }

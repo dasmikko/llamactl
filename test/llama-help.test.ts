@@ -93,3 +93,81 @@ describe("parseLlamaHelp", () => {
     expect(out[0]!.help).toContain("-1 means unlimited");
   });
 });
+
+/**
+ * llama.cpp spells enums two ways. `--rope-scaling {none,linear,yarn}` is the
+ * braced form; `--spec-type` lists its choices bare, comma-separated, and its
+ * help says the flag takes several of them at once. Editors turn both into
+ * pickers, so both have to be recognised — while metavars that merely contain
+ * commas (`--tensor-split N0,N1,N2`) must stay free text.
+ */
+describe("enum and multi-value detection", () => {
+  const SPEC_TYPE_HELP = [
+    "--spec-type none,draft-simple,draft-eagle3,draft-mtp,ngram-simple",
+    "                                        comma-separated list of types of speculative decoding to use (default:",
+    "                                        none)",
+    "",
+    "--tensor-split N0,N1,N2                 fraction of the model to offload to each GPU",
+    "       --rope-scaling {none,linear,yarn}",
+    "                                        RoPE frequency scaling method",
+    "-c, --ctx-size N                        size of the prompt context",
+  ].join("\n");
+
+  const flags = parseLlamaHelp(SPEC_TYPE_HELP);
+
+  test("parses a bare comma-separated option list into choices", () => {
+    const spec = byFlag(flags, "--spec-type");
+    expect(spec.enumValues).toEqual([
+      "none",
+      "draft-simple",
+      "draft-eagle3",
+      "draft-mtp",
+      "ngram-simple",
+    ]);
+    expect(spec.takesValue).toBe(true);
+  });
+
+  test("marks a 'comma-separated list' flag as multi-valued", () => {
+    expect(byFlag(flags, "--spec-type").multiple).toBe(true);
+    expect(byFlag(flags, "--rope-scaling").multiple).toBeUndefined();
+  });
+
+  test("still parses the braced form", () => {
+    expect(byFlag(flags, "--rope-scaling").enumValues).toEqual(["none", "linear", "yarn"]);
+  });
+
+  test("a metavar list is not an enum", () => {
+    // N0,N1,N2 are placeholders for numbers, not choices to pick from.
+    expect(byFlag(flags, "--tensor-split").enumValues).toBeUndefined();
+    expect(byFlag(flags, "--ctx-size").enumValues).toBeUndefined();
+  });
+});
+
+/**
+ * A third spelling: the choices live in the help prose rather than the value
+ * placeholder. `--spec-draft-type-k TYPE` says "allowed values: f32, f16, …",
+ * and only the joined continuation lines contain it.
+ */
+describe("choices named in the help prose", () => {
+  const flags = parseLlamaHelp(
+    [
+      "--spec-draft-type-k, -ctkd, --cache-type-k-draft TYPE",
+      "                                        KV cache data type for K for the draft model",
+      "                                        allowed values: f32, f16, bf16, q8_0, q4_0",
+      "                                        (default: f16)",
+      "",
+      "--spec-draft-n-max N                    number of tokens to draft (default: 3)",
+    ].join("\n"),
+  );
+
+  test("lifts 'allowed values: …' into the choices", () => {
+    const k = byFlag(flags, "--spec-draft-type-k");
+    expect(k.enumValues).toEqual(["f32", "f16", "bf16", "q8_0", "q4_0"]);
+    expect(k.default).toBe("f16");
+    expect(k.multiple).toBeUndefined();
+  });
+
+  test("a plain metavar keeps its free-text field", () => {
+    expect(byFlag(flags, "--spec-draft-n-max").enumValues).toBeUndefined();
+  });
+});

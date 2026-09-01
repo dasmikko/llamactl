@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { sanitizeLogLine } from "../src/tui/LogViewer.tsx";
+import { sanitizeLogLine } from "../src/logs/tail.ts";
 
 describe("sanitizeLogLine", () => {
   test("collapses carriage-return progress redraws to the final segment", () => {
